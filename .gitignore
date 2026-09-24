@@ -1,0 +1,32 @@
+# ---- Gradle ----
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---- Forge / Minecraft run dirs ----
+run/
+logs/
+crash-reports/
+config/northstar/
+*.log
+
+# ---- IDE ----
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+bin/
+*.launch
+.settings/
+.metadata/
+.classpath
+.project
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Agent workspace (本地笔记/会话数据，不入库) ----
+.workbuddy/

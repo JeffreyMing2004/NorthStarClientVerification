@@ -1,0 +1,18 @@
+{
+  "northstar.verification.title": "NorthStar Verification",
+  "northstar.verification.subtitle": "Enter your QQ number; your game ID will be checked too",
+  "northstar.verification.player": "Game ID: %s",
+  "northstar.verification.hint": "QQ number (5-11 digits)",
+  "northstar.verification.button.confirm": "Verify",
+  "northstar.verification.button.verifying": "Verifying...",
+  "northstar.verification.button.quit": "Quit Game",
+  "northstar.verification.status.verifying": "Contacting verification server...",
+  "northstar.verification.error.empty": "Please enter your QQ number",
+  "northstar.verification.error.format": "Invalid QQ number, expected 5-11 digits",
+  "northstar.verification.error.save": "Failed to save locally. Check that config/northstar is writable",
+  "northstar.verification.error.network": "Cannot reach verification server: %s. Please retry",
+  "northstar.verification.error.http": "Verification server error (HTTP %s: %s). Please retry",
+  "northstar.verification.error.rejected": "Your beta verification was rejected. Please retry",
+  "northstar.verification.success": "Verified, bound QQ: %s",
+  "northstar.verification.saved": "Verification saved to %s"
+}
