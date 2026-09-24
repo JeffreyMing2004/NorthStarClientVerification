@@ -339,6 +339,47 @@ li{margin:5px 0;}
 <p>服务端侧，白名单条目的 QQ <strong>不再由运营手工维护</strong>：注册平台在注册时就要求玩家提交 QQ 与离线服
 游戏 ID（<code>POST /api/auth/register</code> 的 <code>qq</code> / <code>mcId</code>），内测审批通过后由后端自动同步成白名单条目。
 后台手工录入 / 批量导入仍然保留，作为补充通道（详见 §5.3「白名单条目的来源」）。</p>
+<blockquote>
+<p><strong>v3.2：QQ 一个账号只允许绑定一次，绑定后不可更改。</strong>
+这是必要约束而非体验取舍——白名单以 QQ 为键，若允许随意改绑，玩家就能把已获批的内测资格
+转手给别人，白名单与账号的绑定关系也就没有意义了。</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>注册时填了 QQ</td>
+<td>即完成绑定，之后<strong>任何入口都改不了</strong></td>
+</tr>
+<tr>
+<td>注册时留空（或 v3.1 之前的老账号）</td>
+<td>可在平台<strong>「账号设置」页补绑一次</strong>（<code>PUT /api/auth/profile</code>）</td>
+</tr>
+<tr>
+<td>已绑定后再提交不同的 QQ</td>
+<td>返回 <strong>400</strong>「QQ 号已绑定，绑定后不可更改；如需更正请联系管理员」</td>
+</tr>
+<tr>
+<td>已绑定后提交同一个 QQ</td>
+<td>幂等成功，不算改动</td>
+</tr>
+<tr>
+<td>提交空值</td>
+<td>不生效，<strong>不能</strong>借此解绑</td>
+</tr>
+<tr>
+<td>填错了 QQ</td>
+<td>只能由管理员在后台「编辑玩家」强制改写（会记日志）；清空即解绑，玩家可重绑一次</td>
+</tr>
+</tbody>
+</table>
+<p>这不影响客户端：校验接口仍然只认 <code>qq</code> + <code>name</code> 两个参数，玩家进游戏时填的 QQ
+必须与账号绑定的那个一致。</p>
+</blockquote>
 <h4 id="msg">「明确未通过」时的 <code>msg</code> 文案</h4>
 <table>
 <thead>
@@ -1285,6 +1326,11 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 <td>v2.0</td>
 <td>2026-09-24</td>
 <td>接口已在 <code>northstar_backend</code> 落地；<code>code</code> 认 <code>0</code>/<code>200</code>；时间改为 <code>datetime</code> 字符串；新增 429 限流、日志脱敏、<code>import-csv</code></td>
+</tr>
+<tr>
+<td><strong>v3.2</strong></td>
+<td>2026-09-24</td>
+<td><strong>QQ 一个账号只允许绑定一次，绑定后不可更改</strong>（防止内测资格被转手）。注册即绑定；老账号可在平台新增的「账号设置」页补绑一次；已绑定后改绑返回 400；空值不解绑；填错只能由管理员后台强制改写（留日志）。接口契约未变</td>
 </tr>
 <tr>
 <td><strong>v3.1</strong></td>
