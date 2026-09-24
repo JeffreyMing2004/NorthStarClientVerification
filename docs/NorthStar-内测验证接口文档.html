@@ -379,6 +379,43 @@ li{margin:5px 0;}
 </table>
 <p>这不影响客户端：校验接口仍然只认 <code>qq</code> + <code>name</code> 两个参数，玩家进游戏时填的 QQ
 必须与账号绑定的那个一致。</p>
+<p><strong>v3.3：Minecraft ID 与 QQ 同规则——注册后不可更改；且「内测资格 ⇄ 客户端白名单」双向联动。</strong></p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>注册时填了 Minecraft ID</td>
+<td>即完成绑定，之后<strong>任何入口都改不了</strong>（<code>PUT /api/auth/profile</code>、<code>POST /api/auth/bind-game</code> 都返回 400）</td>
+</tr>
+<tr>
+<td>注册时留空</td>
+<td>可在平台「账号设置」页绑定<strong>一次</strong>，之后同样不可更改</td>
+</tr>
+<tr>
+<td>该 ID 已被别的账号绑定</td>
+<td>注册 / 绑定均返回 <strong>400</strong>「该 Minecraft ID 已被其他账号绑定」</td>
+</tr>
+<tr>
+<td>已绑定后提交相同的值</td>
+<td>幂等成功，不算改动</td>
+</tr>
+<tr>
+<td>提交空值</td>
+<td>不生效，<strong>不能</strong>借此解绑</td>
+</tr>
+<tr>
+<td>填错了</td>
+<td>只能由管理员在后台「编辑玩家」强制改写（会记日志）；清空即解绑，玩家可重绑一次</td>
+</tr>
+</tbody>
+</table>
+<p>资格与白名单的联动（详见 §5.3）：<strong>拿到内测资格就自动拥有白名单，资格被取消白名单随之消失。</strong>
+管理员手工录入 / 导入的白名单条目两个方向都不受影响。</p>
 </blockquote>
 <h4 id="msg">「明确未通过」时的 <code>msg</code> 文案</h4>
 <table>
@@ -1002,6 +1039,41 @@ li{margin:5px 0;}
 <blockquote>
 <p><code>users</code> 表因此新增了 <code>qq</code> 列（varchar(16)，可空）。存量账号可由管理员在后台「编辑玩家」补填，
 或玩家自己调 <code>PUT /api/auth/profile</code>。<strong>没有 QQ 的账号无法获批内测。</strong></p>
+</blockquote>
+<p><strong>反方向：取消资格 ⇒ 白名单随之消失（v3.3）</strong></p>
+<p>只做「通过就加白名单」是不够的——后台把资格取消掉、白名单却还留着的话，玩家照样能进游戏，
+「取消」就成了一句空话。因此 v3.3 补上了反向操作：</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>管理员把玩家的内测状态从「已通过」改为其它</td>
+<td>该玩家 <code>source=account</code> 的条目<strong>立即删除</strong>，下一次校验即被拒</td>
+</tr>
+<tr>
+<td>审核时把原本已通过的申请改为「拒绝」</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>运营手工录入 / 导入的条目（<code>source=manual</code>）</td>
+<td>两个方向都<strong>不受影响</strong>，系统只删自己创建的条目</td>
+</tr>
+<tr>
+<td>同一次操作里既改了 QQ / 游戏ID 又取消了资格</td>
+<td>按「改动前 + 改动后」两组身份一起清理，不留仍在放行的孤儿条目</td>
+</tr>
+</tbody>
+</table>
+<p><strong>对账 / 数据修复</strong>：<code>POST /api/admin/beta/whitelist/sync-accounts</code>
+（后台「内测管理 → 客户端白名单 → 按账号重建」）会把上面两条不变式对全部账号重跑一遍——
+已获批的补齐条目、已失去资格的系统条目清掉，用于修复 v3.1 之前遗留的漂移数据。
+人工录入的条目完全不参与，既不会被删也不会被改。</p>
+<blockquote>
 <p>⚠️ 这个「自动同步」只解决<strong>放行</strong>问题，不改变 §7 的风险性质：玩家名与 QQ 都是自报的，
 接口仍可被绕过。</p>
 </blockquote>
@@ -1326,6 +1398,11 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 <td>v2.0</td>
 <td>2026-09-24</td>
 <td>接口已在 <code>northstar_backend</code> 落地；<code>code</code> 认 <code>0</code>/<code>200</code>；时间改为 <code>datetime</code> 字符串；新增 429 限流、日志脱敏、<code>import-csv</code></td>
+</tr>
+<tr>
+<td><strong>v3.3</strong></td>
+<td>2026-09-24</td>
+<td><strong>Minecraft ID 与 QQ 同规则：注册后不可更改</strong>（<code>users</code> 新增 <code>mc_id_bound_at</code>；<code>PUT /profile</code> 与 <code>POST /bind-game</code> 在已绑定后提交不同值一律 400；格式校验统一走 <code>support/McIdFormat</code>）。<strong>内测资格与白名单改为双向联动</strong>：取消资格时 <code>source=account</code> 条目自动删除，人工条目不受影响；新增对账接口 <code>POST /api/admin/beta/whitelist/sync-accounts</code>。接口 A 契约未变</td>
 </tr>
 <tr>
 <td><strong>v3.2</strong></td>
