@@ -47,7 +47,7 @@ li{margin:5px 0;}
 <tbody>
 <tr>
 <td>文档版本</td>
-<td><strong>v3.6</strong>（现状：身份标识为「QQ + 游戏ID」；QQ/游戏ID 均注册后不可更改；内测资格与客户端白名单双向联动；内测申请需登录平台账号；<strong>验证失败 3 次才崩溃</strong>；<strong>客户端暂对接开发环境</strong>）</td>
+<td><strong>v3.8</strong>（现状：身份标识为「QQ + 游戏ID」；QQ/游戏ID 均注册后不可更改；内测资格与客户端白名单双向联动；内测申请需登录平台账号；<strong>验证每次启动游戏都要重做</strong>，同一启动内失败 3 次才崩溃；新增<strong>免验证名单</strong> <code>skipPlayers</code>；<strong>客户端已对接生产环境</strong>）</td>
 </tr>
 <tr>
 <td>编写日期</td>
@@ -83,9 +83,13 @@ li{margin:5px 0;}
 「QQ + 离线服游戏 ID」同步成白名单条目</strong>，运营不必再手工录入。详见 §3.2 与 §5.3。</p>
 <p><strong>v3.4 历史</strong>：客户端模组曾对接开发环境（本机后端 <code>http://127.0.0.1:8080</code>），
 用于联调期。该阶段已于 v3.7 结束。</p>
-<p><strong>v3.7 现状（当前）</strong>：模组<strong>已切换生产模式</strong>，默认地址为
+<p><strong>v3.7</strong>：模组<strong>已切换生产模式</strong>，默认地址为
 <code>https://northstar.mingpixel.net/api/beta/verify</code>。切换前已实测线上接口返回
 <code>HTTP 200</code> + 业务 JSON（而非旧构建的 403 空体），验收命令见 §6.2。</p>
+<p><strong>v3.8 现状（当前）</strong>：验证策略改为<strong>每次启动游戏都要重做</strong>（本地记录不再是免验证凭据，
+只用于<strong>记住并预填上次的 QQ 号</strong>）；新增 <strong><code>skipPlayers</code> 免验证名单</strong>，
+默认 <code>JeffreyMing,beigang,TiaraY</code> 三人不弹窗直接进入；失败次数由「按游戏ID持久化」
+改为<strong>本次启动内的内存计数</strong>（重启即归零）。详见 §1 与 §8 配置表。</p>
 <p><strong>v3.5 补充</strong>：这条链的起点收紧了——<strong>内测申请必须登录平台账号</strong>，且申请身份只能是被登录的
 那个人（QQ / 游戏ID 从账号读取，不接受代填）。有开放中的计划才会出现申请入口。详见 §5.3。</p>
 </blockquote>
@@ -102,7 +106,7 @@ li{margin:5px 0;}
 <tbody>
 <tr>
 <td><strong>通过</strong></td>
-<td>写入本地 <code>config/northstar/verification.json</code>，放行进入游戏；<strong>并清零失败计数</strong></td>
+<td>记下本次使用的 QQ 到 <code>config/northstar/verification.json</code>（<strong>仅供下次预填</strong>），放行进入游戏；<strong>并清零本次启动的失败计数</strong></td>
 </tr>
 <tr>
 <td><strong>明确未通过</strong></td>
@@ -115,10 +119,16 @@ li{margin:5px 0;}
 </tbody>
 </table>
 <blockquote>
-<p><strong>失败次数是「按游戏 ID 持久化」的</strong>：记在 <code>verification.json</code> 的 <code>failures</code> 字段里，
-<strong>重启游戏不会重置</strong>，只有验证通过才归零。因此「重开游戏换三次机会」是行不通的。
-反过来说，如果你连错三次被锁，需要删掉 <code>verification.json</code> 里对应的 <code>failures</code> 条目
-（或整个文件）才能恢复——把 <code>maxAttempts</code> 调大 / 设为 <code>1</code>（恢复旧行为）也可以。</p>
+<p><strong>验证是「每次启动游戏都要重做」的</strong>（v3.8 起）。<code>verification.json</code> 不再是免验证凭据，
+它只用来<strong>记住上次填过的 QQ 号</strong>并在下次弹窗时自动填入（配置项 <code>rememberQq</code> 可关闭）。
+之所以这么改：验证是入口闸门，而本地记录存在玩家自己机器上——把它当凭据等于把闸门
+交给被检查的人。</p>
+<p>唯一的例外是 <strong><code>skipPlayers</code> 免验证名单</strong>（默认 <code>JeffreyMing,beigang,TiaraY</code>）：
+名单内的游戏 ID 既不弹窗也不发请求，直接进入。</p>
+<p><strong>失败次数是「本次启动内」的计数</strong>（v3.8 起）：只存在内存里，<strong>重启游戏即归零</strong>，
+验证通过也会清零。新语义下不再需要「重启换机会」的防护——重启后本来就要重新验证。
+反过来说，若把计数持久化，玩家重启后第 1 次填错就会被上一次留下的累计次数直接拖到
+崩溃，那是 bug 而不是保护。把 <code>maxAttempts</code> 设为 <code>1</code> 可恢复「一次未通过就崩」的旧行为。</p>
 </blockquote>
 <h3 id="11-uuid">1.1 为什么不用 UUID</h3>
 <table>
@@ -1298,20 +1308,19 @@ debugLog = false
 <p><code>verifyUrl</code> <strong>留空时客户端会直接放行（<code>SKIPPED</code>）</strong>，所以正式发版必须填上，否则等于没开校验。</p>
 <p><code>debugLog = true</code> 后，<code>logs/latest.log</code> 会打印每次请求的完整 URL 与判定结果。</p>
 <blockquote>
-<p>想反复触发弹窗：删除 <code>config/northstar/verification.json</code> 后重启游戏。</p>
-<p>本地 <code>verification.json</code> 的 <code>players</code> 键是<strong>游戏ID（小写）</strong>；<code>failures</code> 记录各游戏ID
-累计的验证失败次数（v3.6 起）。例如：
+<p>想反复触发弹窗：直接<strong>重启游戏</strong>即可（v3.8 起每次启动都会弹）。</p>
+<p>本地 <code>verification.json</code> 只保留「QQ 记忆」，<code>players</code> 的键是<strong>游戏ID（小写）</strong>。例如：
 <code>json
 {
-  "version": 3,
-  "players":  { "steve": { "name": "Steve", "qq": "123456789",
-                           "firstVerifiedAt": 1758680000000, "lastVerifiedAt": 1758680000000 } },
-  "failures": { "alex": 2 }
+  "version": 4,
+  "players": { "steve": { "name": "Steve", "qq": "123456789",
+                          "firstVerifiedAt": 1758680000000, "lastVerifiedAt": 1758680000000 } }
 }</code>
-v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</strong>，无需手工处理。</p>
-<p><strong>玩家被锁住时怎么恢复</strong>：删掉 <code>failures</code> 里对应的那一项（或整个文件）后重启游戏，
-次数即归零。注意 <code>players</code> 与 <code>failures</code> 是两套独立数据——填错 QQ <strong>不会</strong>往 <code>players</code>
-里写条目，所以「失败过」永远不会被当成「已通过」。</p>
+- v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</strong>；
+- v3 及更早文件里的 <code>failures</code> 字段会被<strong>自动丢弃</strong>（计数已改为内存态），无需手工处理；
+- 删掉某个条目 = 让该玩家下次不再自动填入 QQ，<strong>不会</strong>影响能否进游戏（每次都要验证）。</p>
+<p><strong>注意</strong>：这份文件<strong>不是</strong>放行凭据。把 <code>players</code> 里的条目删掉或伪造，都不会让人绕过验证；
+反过来，也不必为了「多要几次机会」去清理它——机会每次启动自动重置。</p>
 </blockquote>
 <hr>
 <h2 id="7">7. 安全与风险提示</h2>
@@ -1344,7 +1353,7 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 </tr>
 <tr>
 <td><code>verifyUrl</code></td>
-<td>开发地址（见 §6.2）</td>
+<td>生产地址（见 §6.2）</td>
 <td>字符串</td>
 <td><strong>接口 A 完整地址</strong>；留空则跳过远端校验、本地直接放行</td>
 </tr>
@@ -1355,16 +1364,22 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 <td>请求超时（毫秒）</td>
 </tr>
 <tr>
-<td><code>reverifyOnLaunch</code></td>
-<td><code>false</code></td>
+<td><code>rememberQq</code></td>
+<td><code>true</code></td>
 <td>布尔</td>
-<td>本地已有记录时是否仍重新校验</td>
+<td>是否记住上次通过验证的 QQ 并在下次弹窗预填。<strong>与「能否放行」无关</strong>；关闭后每次都要手动输入</td>
+</tr>
+<tr>
+<td><code>skipPlayers</code></td>
+<td><code>JeffreyMing,beigang,TiaraY</code></td>
+<td>字符串</td>
+<td><strong>免验证名单</strong>，英文逗号分隔，忽略大小写与首尾空白。名单内的游戏 ID 不弹窗、不发请求，直接进入</td>
 </tr>
 <tr>
 <td><code>maxAttempts</code></td>
 <td><code>3</code></td>
 <td>1–100</td>
-<td>允许验证失败几次，<strong>达到该次数才崩溃退出</strong>；只有「明确未通过」计数，服务不可用不计数。计数按游戏ID持久化，重启不清零，验证通过后归零。设为 <code>1</code> 即恢复旧行为</td>
+<td><strong>每次启动</strong>允许验证失败几次，达到该次数才崩溃退出；只有「明确未通过」计数，服务不可用不计数。<strong>计数在内存里，重启游戏即归零</strong>，验证通过也归零。设为 <code>1</code> 即恢复「一次未通过就崩」</td>
 </tr>
 <tr>
 <td><code>crashWhenExhausted</code></td>
@@ -1399,6 +1414,8 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 </tbody>
 </table>
 <blockquote>
+<p><code>reverifyOnLaunch</code> 已在 <strong>v3.8 移除</strong>：「每次启动都重新验证」成为固定行为，
+该开关失去意义；旧配置文件里的这一项会被 Forge 自动丢弃。</p>
 <p><code>verifyUrl</code> 只接受 <code>http://</code> / <code>https://</code> 开头，其它协议直接判为服务不可用、不发请求。</p>
 <p><code>crashOnReject</code> 是 v3.6 之前的旧配置项（语义为「一次未通过就崩」），已被
 <code>maxAttempts</code> + <code>crashWhenExhausted</code> 取代；旧文件里残留的这一行会被 Forge 自动忽略。</p>
@@ -1554,9 +1571,19 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 <td>接口已在 <code>northstar_backend</code> 落地；<code>code</code> 认 <code>0</code>/<code>200</code>；时间改为 <code>datetime</code> 字符串；新增 429 限流、日志脱敏、<code>import-csv</code></td>
 </tr>
 <tr>
+<td><strong>v3.8</strong></td>
+<td>2026-09-24</td>
+<td><strong>验证改为「每次启动游戏都要重做」+ 免验证名单</strong>。<code>verification.json</code> 不再是免验证凭据，只用于<strong>记住上次填写的 QQ</strong> 并在下次弹窗预填（新增配置 <code>rememberQq</code>，默认 <code>true</code>）。新增 <code>skipPlayers</code> 免验证名单，默认 <code>JeffreyMing,beigang,TiaraY</code>，忽略大小写与首尾空白；名单内游戏 ID <strong>不弹窗、不发请求</strong>。失败次数由「按游戏 ID 持久化」改为<strong>本次启动内的内存计数</strong>，重启即归零——否则玩家重启后第 1 次填错就会被上一次的累计次数直接拖到崩溃。移除配置项 <code>reverifyOnLaunch</code>（固定行为，开关已无意义）。本地文件格式升 <strong>v4</strong>，旧的 <code>failures</code> 字段自动丢弃。接口 A 契约未变</td>
+</tr>
+<tr>
+<td><strong>v3.7</strong></td>
+<td>2026-09-24</td>
+<td><strong>模组切换生产环境</strong>。生产前后端重新部署后实测 <code>/api/beta/verify</code> 由 <code>403</code> 空体（旧构建）变为 <code>200</code> + 业务 JSON，据此把 <code>Config.DEFAULT_VERIFY_URL</code> 由 <code>VERIFY_URL_DEV</code> 改为 <code>VERIFY_URL_PROD</code>；切换前做了反向验收（<code>/api/beta/plans</code> 200、<code>/api/beta/my-application</code> 与 <code>/api/beta/apply</code> 匿名 403），确认鉴权边界未被误放开。接口 A 契约未变</td>
+</tr>
+<tr>
 <td><strong>v3.6</strong></td>
 <td>2026-09-24</td>
-<td><strong>验证失败改为「允许 3 次」</strong>：新增 <code>maxAttempts</code>（默认 3）与 <code>crashWhenExhausted</code>，取代旧的 <code>crashOnReject</code>（旧语义为一次未通过即崩）。只有「明确未通过」（2xx 且 <code>success=false</code>）计数，服务不可用（超时 / 4xx / 5xx / 无法解析）仍可无限重试且不消耗次数。次数<strong>按游戏 ID 持久化</strong>在 <code>verification.json</code> 的新增 <code>failures</code> 字段（文件格式 v3），<strong>重启游戏不清零，验证通过才归零</strong>。判定规则抽成纯逻辑类 <code>verification/AttemptPolicy</code> 以便独立测试。验证窗口会显示「剩余验证次数：N / 3」，崩溃报告新增「失败次数」明细；崩溃文案由「请重试」改为「尝试次数已用完」。接口 A/B 契约未变</td>
+<td><strong>验证失败改为「允许 3 次」</strong>：新增 <code>maxAttempts</code>（默认 3）与 <code>crashWhenExhausted</code>，取代旧的 <code>crashOnReject</code>（旧语义为一次未通过即崩）。只有「明确未通过」（2xx 且 <code>success=false</code>）计数，服务不可用（超时 / 4xx / 5xx / 无法解析）仍可无限重试且不消耗次数。次数<strong>按游戏 ID 持久化</strong>在 <code>verification.json</code> 的新增 <code>failures</code> 字段（文件格式 v3），<strong>重启游戏不清零，验证通过才归零</strong>（此语义已被 v3.8 取代）。判定规则抽成纯逻辑类 <code>verification/AttemptPolicy</code> 以便独立测试。验证窗口会显示「剩余验证次数：N / 3」，崩溃报告新增「失败次数」明细；崩溃文案由「请重试」改为「尝试次数已用完」。接口 A/B 契约未变</td>
 </tr>
 <tr>
 <td><strong>v3.5</strong></td>

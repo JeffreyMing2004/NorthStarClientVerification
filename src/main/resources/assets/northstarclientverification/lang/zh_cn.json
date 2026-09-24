@@ -7,6 +7,8 @@
   "northstar.verification.button.verifying": "验证中...",
   "northstar.verification.button.quit": "退出游戏",
   "northstar.verification.status.verifying": "正在请求验证服务器...",
+  "northstar.verification.remembered": "已自动填入上次使用的 QQ 号（每次启动都需验证）",
+  "northstar.verification.attempts.total": "本次启动共有 %s 次验证机会",
   "northstar.verification.attempts.remaining": "剩余验证次数：%s / %s",
   "northstar.verification.attempts.exhausted": "验证次数已用完（共 %s 次），填对 QQ 仍可通过",
   "northstar.verification.error.empty": "请输入 QQ 号",
@@ -18,5 +20,5 @@
   "northstar.verification.error.rejected.remaining": "验证未通过，还剩 %s 次机会（共 %s 次）",
   "northstar.verification.error.rejected.exhausted": "验证未通过，%s 次机会已用完，游戏即将退出",
   "northstar.verification.success": "验证成功，已绑定 QQ：%s",
-  "northstar.verification.saved": "验证信息已保存至 %s"
+  "northstar.verification.saved": "已记住 QQ 号，下次启动会自动填入（记录文件：%s）"
 }

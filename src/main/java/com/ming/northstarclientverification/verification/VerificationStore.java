@@ -23,12 +23,14 @@ import java.util.Map;
 /**
  * 验证数据的读写入口（单例）。
  *
- * <p>落盘位置固定在 <code>&lt;游戏目录&gt;/config/northstar/verification.json</code>，
- * 文件结构：</p>
+ * <p>落盘位置固定在 <code>&lt;游戏目录&gt;/config/northstar/verification.json</code>。
+ * <b>v3.8 起语义有变化</b>：验证<b>每次启动游戏都要重做</b>，所以这个文件不再是
+ * 「免验证通行证」——它只负责两件事：<b>记住上次填写的 QQ 号</b>（下次弹窗预填），
+ * 并保留一条可查的历史记录。</p>
  *
  * <pre>{@code
  * {
- *   "version": 3,
+ *   "version": 4,
  *   "players": {
  *     "steve": {
  *       "name": "Steve",
@@ -36,9 +38,6 @@ import java.util.Map;
  *       "firstVerifiedAt": 1758680000000,
  *       "lastVerifiedAt": 1758680000000
  *     }
- *   },
- *   "failures": {
- *     "alex": 2
  *   }
  * }
  * }</pre>
@@ -47,9 +46,11 @@ import java.util.Map;
  * 用它做键会导致每次开游戏都重新弹窗。旧版本（version 1）按 UUID 索引的文件会在
  * 载入时自动迁移到按游戏 ID 索引。</p>
  *
- * <p><b>{@code failures} 必须与 {@code players} 分开存</b>：{@link #isVerified(String)}
- * 的判据是「{@code players} 里有条目」，若把失败次数塞进同一条目，则一个从未通过、
- * 只是填错了两次的玩家会被当成已通过而直接放行——这是安全漏洞，不是显示问题。</p>
+ * <p><b>失败次数不落盘</b>：新语义下「N 次机会」是<b>每次启动</b>给的，重启即重置
+ * ——否则玩家重启后第 1 次填错就会被上一次留下的累计次数直接拖到崩溃。
+ * 计数只放在内存里，入口是 {@link #recordFailure(String)} / {@link #clearFailures(String)}，
+ * 且<b>与 {@code players} 完全隔离</b>：一旦混进同一条目，「填错过两次」就会变成
+ * 「已验证通过」，那是放行漏洞而不是显示问题。</p>
  */
 public final class VerificationStore {
 
@@ -63,14 +64,25 @@ public final class VerificationStore {
     private static final String DIR_NAME = "northstar";
     private static final String FILE_NAME = "verification.json";
 
-    /** 2 = players 的键由「玩家 UUID」改为「游戏 ID（小写）」；3 = 新增 failures。 */
-    private static final int FORMAT_VERSION = 3;
+    /**
+     * 2 = players 的键由「玩家 UUID」改为「游戏 ID（小写）」；
+     * 3 = 新增 failures；4 = failures 移出文件，改为内存计数（见类注释）。
+     */
+    private static final int FORMAT_VERSION = 4;
 
     private static final VerificationStore INSTANCE = new VerificationStore();
 
     private final Object lock = new Object();
 
     private Root root = new Root();
+
+    /**
+     * 本次启动的「明确未通过」累计次数（游戏 ID 小写 → 次数）。
+     *
+     * <p>刻意<b>不落盘</b>：验证每次启动都要重做，机会自然也是每次启动重新给。
+     * 存盘会让玩家重启后的第 1 次输入就被历史计数直接拖到崩溃。</p>
+     */
+    private final Map<String, Integer> failures = new LinkedHashMap<>();
 
     private VerificationStore() {
     }
@@ -91,7 +103,8 @@ public final class VerificationStore {
     /**
      * 从磁盘重新载入验证数据。文件不存在时视为空表；文件损坏时备份后重建。
      *
-     * <p>读到 1 版（按 UUID 索引）的文件会自动改写为 2 版，因此外部手工修改文件
+     * <p>读到 1 版（按 UUID 索引）的文件会自动改写为按游戏 ID 索引；读到 3 版及更早的
+     * 文件会去掉已不再使用的 {@code failures} 字段并升级为 4 版。因此外部手工修改文件
      * 同样生效。</p>
      */
     public void load() {
@@ -109,9 +122,6 @@ public final class VerificationStore {
                 root = parsed == null ? new Root() : parsed;
                 if (root.players == null) {
                     root.players = new LinkedHashMap<>();
-                }
-                if (root.failures == null) {
-                    root.failures = new LinkedHashMap<>();
                 }
 
                 boolean migrated = migrateKeys();
@@ -131,7 +141,7 @@ public final class VerificationStore {
                     }
                 }
 
-                LOGGER.info("[NorthStar] 已载入 {} 条验证记录：{}", root.players.size(), file);
+                LOGGER.info("[NorthStar] 已载入 {} 条 QQ 记忆记录：{}", root.players.size(), file);
             } catch (IOException | JsonSyntaxException e) {
                 LOGGER.error("[NorthStar] 读取验证文件失败，将备份并重建：{}", file, e);
                 backupBrokenFile(file);
@@ -140,12 +150,14 @@ public final class VerificationStore {
         }
     }
 
-    /** 该玩家（游戏 ID）是否已经验证过。 */
-    public boolean isVerified(String playerName) {
-        return find(playerName) != null;
-    }
-
-    /** 查找玩家已有的验证记录，没有则返回 null。游戏 ID 忽略大小写。 */
+    /**
+     * 查找该玩家<b>上次通过验证时</b>留下的记录（用途：预填 QQ），没有则返回 null。
+     *
+     * <p><b>注意</b>：返回非 null <u>不代表</u>可以放行。自 v3.8 起验证每次启动游戏
+     * 都要重做，本记录只用于回忆 QQ 号；能否跳过流程只由
+     * {@link com.ming.northstarclientverification.Config#shouldSkipVerification(String)}
+     * 决定。游戏 ID 忽略大小写。</p>
+     */
     public VerificationEntry find(String playerName) {
         if (playerName == null || playerName.isEmpty()) {
             return null;
@@ -156,10 +168,10 @@ public final class VerificationStore {
     }
 
     /**
-     * 该玩家累计的「明确未通过」次数，没有记录时返回 0。
+     * 本次启动内该玩家累计的「明确未通过」次数，没有记录时返回 0。
      *
-     * <p>与 {@link #find(String)} 是<b>两套独立的数据</b>：填错 QQ 不会往 players 里写条目，
-     * 所以失败过的玩家不会被 {@link #isVerified(String)} 误判为已通过。</p>
+     * <p>与 {@link #find(String)} 是<b>两套独立的数据</b>：填错 QQ 不会往 players 里写条目。
+     * 计数不落盘，每次启动游戏自动归零。</p>
      */
     public int failureCount(String playerName) {
         if (playerName == null || playerName.isEmpty()) {
@@ -171,7 +183,7 @@ public final class VerificationStore {
     }
 
     /**
-     * 记一次「明确未通过」并立即落盘。
+     * 记一次「明确未通过」。计数只在内存中，不写盘。
      *
      * @param playerName 游戏 ID
      * @return <b>包含本次</b>在内的累计失败次数（即本次是第几次）
@@ -184,54 +196,37 @@ public final class VerificationStore {
         synchronized (lock) {
             String key = keyOf(playerName);
             int next = failureCountLocked(key) + 1;
-            root.failures.put(key, next);
-
-            try {
-                save();
-                LOGGER.warn("[NorthStar] 玩家 {} 第 {} 次验证未通过，已记入 {}",
-                        playerName, next, resolveFile());
-            } catch (IOException e) {
-                // 落盘失败也照常返回计数：宁可本次少一次提示，也不要因为写不进去就放行
-                LOGGER.error("[NorthStar] 写入失败次数失败（本次仍按第 {} 次计）：{}",
-                        next, resolveFile(), e);
-            }
+            failures.put(key, next);
+            LOGGER.warn("[NorthStar] 玩家 {} 第 {} 次验证未通过（本次启动内计数，重启后归零）",
+                    playerName, next);
             return next;
         }
     }
 
     /**
-     * 清零某个玩家（游戏 ID）的失败计数。验证通过时调用。
+     * 清零本次启动的失败计数。验证通过时调用。
      *
-     * @return 是否写盘成功；失败时内存计数仍已清零，仅提示调用方
+     * <p>计数是内存态，所以这里不需要写盘、也就不存在写失败的情况。</p>
      */
-    public boolean clearFailures(String playerName) {
+    public void clearFailures(String playerName) {
         if (playerName == null || playerName.isEmpty()) {
-            return true;
+            return;
         }
-
         synchronized (lock) {
-            String key = keyOf(playerName);
-            if (failureCountLocked(key) == 0) {
-                return true;
-            }
-            root.failures.remove(key);
-            try {
-                save();
-                return true;
-            } catch (IOException e) {
-                LOGGER.error("[NorthStar] 清除失败次数失败：{}", resolveFile(), e);
-                return false;
-            }
+            failures.remove(keyOf(playerName));
         }
     }
 
     private int failureCountLocked(String key) {
-        Integer count = root.failures.get(key);
+        Integer count = failures.get(key);
         return count == null ? 0 : Math.max(0, count);
     }
 
     /**
-     * 记录一次验证并立即落盘，同时<b>清零该玩家的失败计数</b>。
+     * 通过验证后调用：记下这次使用的 QQ（供下次预填）并立即落盘，
+     * 同时<b>清零本次启动的失败计数</b>。
+     *
+     * <p>它<u>不再</u>意味着「以后可以免验证」——放行与否与这个文件无关。</p>
      *
      * @param playerName 游戏 ID，必须非空
      * @return 写入成功返回 true；写入失败时内存状态会回滚并返回 false
@@ -248,15 +243,14 @@ public final class VerificationStore {
             // 保存旧记录快照，写入失败时用于回滚
             VerificationEntry existing = root.players.get(key);
             String snapshot = existing == null ? null : GSON.toJson(existing);
-            Integer failureSnapshot = root.failures.get(key);
 
             if (existing != null) {
                 existing.update(playerName, qq, now);
             } else {
                 root.players.put(key, new VerificationEntry(playerName, qq, now));
             }
-            // 验证通过即清零失败计数：机会是「连续」的，成功一次就重置
-            root.failures.remove(key);
+            // 验证通过即清零本次启动的失败计数；成功后机会自然重置
+            failures.remove(key);
 
             try {
                 save();
@@ -269,11 +263,6 @@ public final class VerificationStore {
                     root.players.remove(key);
                 } else {
                     root.players.put(key, GSON.fromJson(snapshot, VerificationEntry.class));
-                }
-                if (failureSnapshot == null) {
-                    root.failures.remove(key);
-                } else {
-                    root.failures.put(key, failureSnapshot);
                 }
                 return false;
             }
@@ -356,12 +345,11 @@ public final class VerificationStore {
     /** verification.json 的根对象。 */
     public static final class Root {
         private int version = FORMAT_VERSION;
-        private Map<String, VerificationEntry> players = new LinkedHashMap<>();
         /**
-         * 游戏 ID（小写）→ 累计「明确未通过」次数。
+         * 游戏 ID（小写）→ 上次通过验证时留下的记录（含 QQ）。
          *
-         * <p>必须独立于 {@link #players}：players 里的条目意味着「已验证通过」。</p>
+         * <p>自 v3.8 起这份数据<b>只用于预填 QQ</b>，不再是免验证凭据。</p>
          */
-        private Map<String, Integer> failures = new LinkedHashMap<>();
+        private Map<String, VerificationEntry> players = new LinkedHashMap<>();
     }
 }

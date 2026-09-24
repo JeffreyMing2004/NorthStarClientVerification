@@ -19,8 +19,13 @@ import net.minecraftforge.fml.common.Mod;
 /**
  * 客户端验证流程的触发点。
  *
- * <p>游戏启动后一旦出现主界面（{@link TitleScreen}），等待若干刻就检查验证记录：
- * 没有记录则弹出 {@link VerificationScreen}，有记录则放行。</p>
+ * <p>游戏启动后一旦出现主界面（{@link TitleScreen}），等待若干刻就弹出
+ * {@link VerificationScreen}。<b>自 v3.8 起每次启动游戏都要重新验证</b>——
+ * 本地记录不再是免验证凭据，只用来预填上次填过的 QQ 号
+ * （由 {@code Config.rememberQq} 控制）。</p>
+ *
+ * <p>唯一的例外是 {@code Config.skipPlayers} 名单（默认 {@code JeffreyMing,beigang,TiaraY}）：
+ * 名单内的游戏 ID 既不弹窗也不发请求，直接放行。</p>
  *
  * <p>身份只由「QQ + 游戏 ID」确定。本服为离线模式，玩家 UUID 每次启动可能变化，
  * 因此本地记录按游戏 ID 索引，也不向远端上报 UUID。</p>
@@ -78,17 +83,32 @@ public final class ClientVerificationHandler {
 
         String playerName = ClientIdentity.name(minecraft);
 
-        if (!Config.reverifyOnLaunch && VerificationStore.get().isVerified(playerName)) {
+        // 免验证名单：既不弹窗也不发请求，直接放行
+        if (Config.shouldSkipVerification(playerName)) {
             finished = true;
-            if (Config.debugLog) {
-                Northstarclientverification.LOGGER.info("[NorthStar] 游戏 ID {} 已有验证记录，直接放行", playerName);
-            }
+            Northstarclientverification.LOGGER.info("[NorthStar] 游戏 ID {} 在免验证名单中，跳过验证", playerName);
             return;
         }
 
-        VerificationEntry existing = VerificationStore.get().find(playerName);
+        // 每次启动都要重新验证；本地记录只用来预填上次用过的 QQ
+        VerificationEntry remembered = Config.rememberQq ? VerificationStore.get().find(playerName) : null;
+        if (Config.debugLog && remembered != null) {
+            Northstarclientverification.LOGGER.info("[NorthStar] 已记住游戏 ID {} 上次使用的 QQ，本次自动填入", playerName);
+        }
+
         minecraft.setScreen(new VerificationScreen(minecraft.screen, playerName,
-                existing == null ? null : existing.getQq()));
+                remembered == null ? null : remembered.getQq()));
+    }
+
+    /**
+     * {@link VerificationScreen} 验证通过后调用：本次启动不再拦截。
+     *
+     * <p>这个方法<b>不能省</b>。旧版本靠「本地已有验证记录」来避免通过后重复弹窗，
+     * 而 v3.8 已经不再用本地记录判放行——若没有这行，玩家验证通过回到主界面后
+     * 会被立刻再次弹窗，形成永远进不去的死循环。</p>
+     */
+    public static void onVerificationPassed() {
+        finished = true;
     }
 
     /** {@link VerificationScreen#onClose()} 调用：玩家主动放弃验证。 */

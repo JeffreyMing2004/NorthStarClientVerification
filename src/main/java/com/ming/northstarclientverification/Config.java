@@ -5,6 +5,9 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.config.ModConfigEvent;
 
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -34,6 +37,14 @@ public final class Config {
      */
     public static final String DEFAULT_VERIFY_URL = VERIFY_URL_PROD;
 
+    /**
+     * 免验证游戏 ID 默认名单（英文逗号分隔，忽略大小写）。
+     *
+     * <p>名单内的玩家启动游戏时不会弹出验证窗口。用于服主/运维自用账号，
+     * 避免自己每次开游戏都要走一遍流程。</p>
+     */
+    public static final String DEFAULT_SKIP_PLAYERS = "JeffreyMing,beigang,TiaraY";
+
     private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
 
     private static final ForgeConfigSpec.BooleanValue ENABLE_VERIFICATION = BUILDER
@@ -57,9 +68,16 @@ public final class Config {
                      "留空表示不做远端校验，只写入本地 verification.json（会直接放行）。")
             .define("verifyUrl", DEFAULT_VERIFY_URL);
 
-    private static final ForgeConfigSpec.BooleanValue REVERIFY_ON_LAUNCH = BUILDER
-            .comment("本地已有验证记录时，是否仍然弹窗重新走一次远端校验")
-            .define("reverifyOnLaunch", false);
+    private static final ForgeConfigSpec.BooleanValue REMEMBER_QQ = BUILDER
+            .comment("是否记住玩家上次通过验证的 QQ 号，下次弹窗时自动填入。",
+                     "关闭后每次都要手动重新输入。")
+            .define("rememberQq", true);
+
+    private static final ForgeConfigSpec.ConfigValue<String> SKIP_PLAYERS = BUILDER
+            .comment("免验证游戏 ID 名单，英文逗号分隔，忽略大小写。",
+                     "名单内的玩家启动游戏时不会弹出验证窗口，直接进入。",
+                     "默认：" + DEFAULT_SKIP_PLAYERS)
+            .define("skipPlayers", DEFAULT_SKIP_PLAYERS);
 
     private static final ForgeConfigSpec.IntValue HTTP_TIMEOUT_MS = BUILDER
             .comment("远端验证请求超时时间（毫秒）")
@@ -102,7 +120,10 @@ public final class Config {
     // ---- 运行时字段（配置加载时同步） ----
     public static boolean enableVerification = true;
     public static String verifyUrl = DEFAULT_VERIFY_URL;
-    public static boolean reverifyOnLaunch = false;
+    /** 是否记住上次通过验证的 QQ 号并在下次弹窗时预填。 */
+    public static boolean rememberQq = true;
+    /** 免验证游戏 ID 的小写集合。 */
+    public static Set<String> skipPlayers = Set.of();
     public static int httpTimeoutMs = 8000;
     public static int openDelayTicks = 20;
     public static boolean blockEscape = true;
@@ -126,7 +147,8 @@ public final class Config {
         enableVerification = ENABLE_VERIFICATION.get();
         String url = VERIFY_URL.get();
         verifyUrl = url == null ? "" : url.trim();
-        reverifyOnLaunch = REVERIFY_ON_LAUNCH.get();
+        rememberQq = REMEMBER_QQ.get();
+        skipPlayers = parsePlayerList(SKIP_PLAYERS.get());
         httpTimeoutMs = HTTP_TIMEOUT_MS.get();
         openDelayTicks = OPEN_DELAY_TICKS.get();
         blockEscape = BLOCK_ESCAPE.get();
@@ -143,8 +165,41 @@ public final class Config {
         }
 
         Northstarclientverification.LOGGER.info(
-                "[NorthStar] 配置已加载：enableVerification={}, verifyUrl={}, httpTimeoutMs={}, maxAttempts={}, crashWhenExhausted={}",
+                "[NorthStar] 配置已加载：enableVerification={}, verifyUrl={}, httpTimeoutMs={}, maxAttempts={}, "
+                        + "crashWhenExhausted={}, rememberQq={}, skipPlayers={}",
                 enableVerification, verifyUrl.isEmpty() ? "(未配置)" : verifyUrl, httpTimeoutMs,
-                maxAttempts, crashWhenExhausted);
+                maxAttempts, crashWhenExhausted, rememberQq, skipPlayers);
+    }
+
+    /**
+     * 该游戏 ID 是否在免验证名单里（忽略大小写与首尾空白）。
+     *
+     * <p>命中者启动时<b>不会</b>弹出验证窗口，也不会发起任何远端请求。</p>
+     */
+    public static boolean shouldSkipVerification(String playerName) {
+        if (playerName == null || playerName.isBlank()) {
+            return false;
+        }
+        return skipPlayers.contains(playerName.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * 把 {@code "a, B ,c"} 解析成小写集合 {@code [a, b, c]}，顺手丢掉空片段。
+     *
+     * <p>公开出来是为了让联调自测能直接复用这唯一的解析实现，而不是在测试里
+     * 再抄一份（抄一份就迟早会漂移）。</p>
+     */
+    public static Set<String> parsePlayerList(String raw) {
+        Set<String> parsed = new LinkedHashSet<>();
+        if (raw == null || raw.isBlank()) {
+            return parsed;
+        }
+        for (String part : raw.split(",")) {
+            String name = part.trim().toLowerCase(Locale.ROOT);
+            if (!name.isEmpty()) {
+                parsed.add(name);
+            }
+        }
+        return parsed;
     }
 }

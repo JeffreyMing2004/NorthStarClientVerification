@@ -22,17 +22,20 @@ import org.lwjgl.glfw.GLFW;
 /**
  * QQ 号内测验证窗口。
  *
- * <p>游戏启动进入主界面时由 {@link ClientVerificationHandler} 弹出。玩家输入 QQ 号后，
+ * <p>游戏启动进入主界面时由 {@link ClientVerificationHandler} 弹出，<b>每次启动都要走一遍</b>；
+ * 在 {@code Config.skipPlayers} 名单里的游戏 ID 则根本不会看到本窗口。玩家输入 QQ 号后，
  * 会异步向远端接口发起 GET 校验，同时上报自动识别到的游戏 ID：</p>
  * <ul>
- *   <li>通过 → 写入 {@code config/northstar/verification.json} 并回到主界面</li>
+ *   <li>通过 → 记下 QQ 号到 {@code config/northstar/verification.json}（供下次启动预填）
+ *       并回到主界面</li>
  *   <li>明确未通过 → 累计一次失败；<b>未达 {@code maxAttempts}（默认 3）次时留在界面提示剩余机会</b>，
  *       达到上限才交由 {@link ClientVerificationHandler#crashOnRejected} 生成崩溃报告并退出游戏</li>
  *   <li>服务不可用 → 停在当前界面提示原因，允许无限重试（不消耗机会）</li>
  * </ul>
  *
- * <p>失败次数按游戏 ID 持久化在 {@code verification.json}，重启游戏不会重置；
- * 判定规则见 {@link com.ming.northstarclientverification.verification.AttemptPolicy}。</p>
+ * <p><b>失败次数是「本次启动」内的计数</b>，只存在内存里，重启游戏即归零——否则重启后
+ * 第一次填错就会被上一次留下的计数直接拖到崩溃。判定规则见
+ * {@link com.ming.northstarclientverification.verification.AttemptPolicy}。</p>
  *
  * <p>窗口上会显示自动识别到的游戏 ID，方便玩家在验证被拒时把它报给管理员核对绑定。</p>
  */
@@ -56,6 +59,7 @@ public class VerificationScreen extends Screen {
     private final Screen parent;
     /** 自动识别到的游戏 ID，验证时随请求上报。 */
     private final String playerName;
+    /** 上次通过验证时用过的 QQ，用于预填；首次游玩或关闭记住功能时为 null。 */
     private final String existingQq;
 
     private EditBox qqBox;
@@ -109,11 +113,11 @@ public class VerificationScreen extends Screen {
 
         this.applyVerifyingState();
 
-        // 之前填错过就先把剩余机会讲清楚，别等玩家提交完才知道还剩几次
-        // （init 在窗口缩放时会被再次调用，已有状态提示时不覆盖）
+        // init 在窗口缩放时会被再次调用，已有状态提示时不覆盖
         if (this.statusMessage == null) {
             int used = VerificationStore.get().failureCount(this.playerName);
             if (used > 0) {
+                // 本次启动内已经填错过：先把剩余机会讲清楚，别等玩家提交完才知道
                 int remaining = AttemptPolicy.remaining(used, Config.maxAttempts);
                 setStatus(remaining > 0
                                 ? Component.translatable("northstar.verification.attempts.remaining",
@@ -121,6 +125,11 @@ public class VerificationScreen extends Screen {
                                 : Component.translatable("northstar.verification.attempts.exhausted",
                                         Config.maxAttempts),
                         remaining > 0 ? COLOR_INFO : COLOR_ERROR);
+            } else if (this.existingQq != null && !this.existingQq.isEmpty()) {
+                setStatus(Component.translatable("northstar.verification.remembered"), COLOR_INFO);
+            } else if (Config.maxAttempts > 1) {
+                setStatus(Component.translatable("northstar.verification.attempts.total", Config.maxAttempts),
+                        COLOR_INFO);
             }
         }
     }
@@ -229,7 +238,7 @@ public class VerificationScreen extends Screen {
         }
     }
 
-    /** 校验通过：写入本地记录并回到主界面。 */
+    /** 校验通过：记下 QQ（供下次启动预填）并回到主界面。 */
     private void onPassed(String qq, VerifyResult result) {
         if (!VerificationStore.get().record(this.playerName, qq)) {
             this.verifying = false;
@@ -251,6 +260,9 @@ public class VerificationScreen extends Screen {
         }
 
         this.completed = true;
+        // 必须显式告知 handler：v3.8 起不再靠本地记录判断「已通过」，
+        // 少了这行会在回到主界面后被立刻重新弹窗
+        ClientVerificationHandler.onVerificationPassed();
         if (this.minecraft != null) {
             this.minecraft.setScreen(this.parent != null ? this.parent : new TitleScreen());
         }
