@@ -47,7 +47,7 @@ li{margin:5px 0;}
 <tbody>
 <tr>
 <td>文档版本</td>
-<td><strong>v3.1</strong>（身份标识为「QQ + 游戏ID」；QQ 由注册平台收集，审批通过后自动同步白名单）</td>
+<td><strong>v3.4</strong>（现状：身份标识为「QQ + 游戏ID」；QQ/游戏ID 均注册后不可更改；内测资格与客户端白名单双向联动；<strong>客户端暂对接开发环境</strong>）</td>
 </tr>
 <tr>
 <td>编写日期</td>
@@ -81,6 +81,9 @@ li{margin:5px 0;}
 <p><strong>v3.1 补充</strong>：服务端<strong>不启用 MC 白名单</strong>，判定完全在后端做，所以「审批通过」必须落到白名单表。
 注册平台已新增 QQ 字段（注册时提交，落 <code>users.qq</code>），内测审批通过时后端会<strong>自动把
 「QQ + 离线服游戏 ID」同步成白名单条目</strong>，运营不必再手工录入。详见 §3.2 与 §5.3。</p>
+<p><strong>v3.4 现状</strong>：客户端模组<strong>当前对接开发环境</strong>（本机后端 <code>http://127.0.0.1:8080</code>），
+待联调确认稳定后再切换生产环境 <code>https://northstar.mingpixel.net/api/beta/verify</code>；
+切换方式见 §6.2「环境切换」。</p>
 </blockquote>
 <hr>
 <h2 id="1">1. 背景与目标</h2>
@@ -1192,12 +1195,41 @@ curl -i &quot;$BASE?qq=123456789&amp;name=%E6%98%8E%E6%98%8E&quot;
 <p>期望：第 1 条 <code>HTTP 200</code> + <code>"success":true,"code":0</code>；第 2、3 条 <code>HTTP 200</code> + <code>"success":false,"code":1001</code>；第 4、5 条 <code>HTTP 400</code>。</p>
 <h3 id="62">6.2 客户端侧配置</h3>
 <p>编辑 <code>config/northstarclientverification-common.toml</code>：</p>
-<pre><code class="language-toml"># 线上（前端站点与接口同域，见 northstar_frontend/deploy/README.md）
-verifyUrl = &quot;https://northstar.mingpixel.net/api/beta/verify&quot;
-# 本地联调时用这个
-# verifyUrl = &quot;http://127.0.0.1:8080/api/beta/verify&quot;
+<pre><code class="language-toml"># 当前阶段：开发模式（本机后端）
+verifyUrl = &quot;http://127.0.0.1:8080/api/beta/verify&quot;
+# 联调确认稳定后，切换为生产模式（前端站点与接口同域，见 northstar_frontend/deploy/README.md）
+# verifyUrl = &quot;https://northstar.mingpixel.net/api/beta/verify&quot;
 debugLog = true
 </code></pre>
+<h4 id="_9">环境切换（开发 ↔ 生产）</h4>
+<p>现阶段模组<strong>先对接开发模式</strong>（本机后端），待联调确认稳定后再切生产：</p>
+<table>
+<thead>
+<tr>
+<th>环境</th>
+<th><code>verifyUrl</code></th>
+<th>前置条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>开发（当前默认）</strong></td>
+<td><code>http://127.0.0.1:8080/api/beta/verify</code></td>
+<td>先在本机启动 <code>northstar_backend</code>（默认 8080）；客户端与后端不在同一台机器时，把 <code>127.0.0.1</code> 换成后端所在机器的地址</td>
+</tr>
+<tr>
+<td>生产（待切换）</td>
+<td><code>https://northstar.mingpixel.net/api/beta/verify</code></td>
+<td>站点与接口已部署上线（同域反向代理）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>切换有两种方式，任选其一：
+1. <strong>改配置文件</strong>（推荐，无需重新构建）：把 <code>verifyUrl</code> 换成生产地址后重启游戏即可。
+2. <strong>改代码默认值</strong>：把 <code>Config.DEFAULT_VERIFY_URL</code> 由 <code>VERIFY_URL_DEV</code> 改成 <code>VERIFY_URL_PROD</code> 并重新构建 jar，
+   这样新装玩家拿到的默认配置直接就是生产地址，无需手工修改配置文件。</p>
+</blockquote>
 <p><code>verifyUrl</code> <strong>留空时客户端会直接放行（<code>SKIPPED</code>）</strong>，所以正式发版必须填上，否则等于没开校验。</p>
 <p><code>debugLog = true</code> 后，<code>logs/latest.log</code> 会打印每次请求的完整 URL 与判定结果。</p>
 <blockquote>
@@ -1239,7 +1271,7 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 </tr>
 <tr>
 <td><code>verifyUrl</code></td>
-<td><code>""</code></td>
+<td>开发地址（见 §6.2）</td>
 <td>字符串</td>
 <td><strong>接口 A 完整地址</strong>；留空则跳过远端校验、本地直接放行</td>
 </tr>
@@ -1398,6 +1430,11 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 <td>v2.0</td>
 <td>2026-09-24</td>
 <td>接口已在 <code>northstar_backend</code> 落地；<code>code</code> 认 <code>0</code>/<code>200</code>；时间改为 <code>datetime</code> 字符串；新增 429 限流、日志脱敏、<code>import-csv</code></td>
+</tr>
+<tr>
+<td><strong>v3.4</strong></td>
+<td>2026-09-24</td>
+<td><strong>客户端暂对接开发环境</strong>：模组默认 <code>verifyUrl</code> 由空值改为开发地址 <code>http://127.0.0.1:8080/api/beta/verify</code>（新增 <code>Config.VERIFY_URL_DEV</code> / <code>VERIFY_URL_PROD</code> 常量，联调稳定后改 <code>DEFAULT_VERIFY_URL</code> 一行即可切生产）。<strong>后台原生弹窗改为站内弹窗</strong>：新增 <code>ConfirmDialog.vue</code> 取代 <code>window.confirm</code>（删除白名单 / 按账号重建 / 覆盖导入三处）与 <code>window.alert</code>（内测申请成功与失败两处）。接口 A/B 契约未变</td>
 </tr>
 <tr>
 <td><strong>v3.3</strong></td>

@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | **v3.1**（身份标识为「QQ + 游戏ID」；QQ 由注册平台收集，审批通过后自动同步白名单） |
+| 文档版本 | **v3.4**（现状：身份标识为「QQ + 游戏ID」；QQ/游戏ID 均注册后不可更改；内测资格与客户端白名单双向联动；**客户端暂对接开发环境**） |
 | 编写日期 | 2026-09-24 |
 | 客户端 | NorthStar Client Verification 1.0-SNAPSHOT（Minecraft Forge 1.20.1） |
 | 服务端 | northstar_backend（Spring Boot 4.1.1 / Java 17） |
@@ -19,6 +19,10 @@
 > **v3.1 补充**：服务端**不启用 MC 白名单**，判定完全在后端做，所以「审批通过」必须落到白名单表。
 > 注册平台已新增 QQ 字段（注册时提交，落 `users.qq`），内测审批通过时后端会**自动把
 > 「QQ + 离线服游戏 ID」同步成白名单条目**，运营不必再手工录入。详见 §3.2 与 §5.3。
+>
+> **v3.4 现状**：客户端模组**当前对接开发环境**（本机后端 `http://127.0.0.1:8080`），
+> 待联调确认稳定后再切换生产环境 `https://northstar.mingpixel.net/api/beta/verify`；
+> 切换方式见 §6.2「环境切换」。
 
 ---
 
@@ -606,12 +610,26 @@ curl -i "$BASE?qq=123456789&name=%E6%98%8E%E6%98%8E"
 编辑 `config/northstarclientverification-common.toml`：
 
 ```toml
-# 线上（前端站点与接口同域，见 northstar_frontend/deploy/README.md）
-verifyUrl = "https://northstar.mingpixel.net/api/beta/verify"
-# 本地联调时用这个
-# verifyUrl = "http://127.0.0.1:8080/api/beta/verify"
+# 当前阶段：开发模式（本机后端）
+verifyUrl = "http://127.0.0.1:8080/api/beta/verify"
+# 联调确认稳定后，切换为生产模式（前端站点与接口同域，见 northstar_frontend/deploy/README.md）
+# verifyUrl = "https://northstar.mingpixel.net/api/beta/verify"
 debugLog = true
 ```
+
+#### 环境切换（开发 ↔ 生产）
+
+现阶段模组**先对接开发模式**（本机后端），待联调确认稳定后再切生产：
+
+| 环境 | `verifyUrl` | 前置条件 |
+| --- | --- | --- |
+| **开发（当前默认）** | `http://127.0.0.1:8080/api/beta/verify` | 先在本机启动 `northstar_backend`（默认 8080）；客户端与后端不在同一台机器时，把 `127.0.0.1` 换成后端所在机器的地址 |
+| 生产（待切换） | `https://northstar.mingpixel.net/api/beta/verify` | 站点与接口已部署上线（同域反向代理） |
+
+> 切换有两种方式，任选其一：
+> 1. **改配置文件**（推荐，无需重新构建）：把 `verifyUrl` 换成生产地址后重启游戏即可。
+> 2. **改代码默认值**：把 `Config.DEFAULT_VERIFY_URL` 由 `VERIFY_URL_DEV` 改成 `VERIFY_URL_PROD` 并重新构建 jar，
+>    这样新装玩家拿到的默认配置直接就是生产地址，无需手工修改配置文件。
 
 `verifyUrl` **留空时客户端会直接放行（`SKIPPED`）**，所以正式发版必须填上，否则等于没开校验。
 
@@ -646,7 +664,7 @@ debugLog = true
 | 配置项 | 默认值 | 取值范围 | 说明 |
 | --- | --- | --- | --- |
 | `enableVerification` | `true` | 布尔 | 是否在主界面弹窗 |
-| `verifyUrl` | `""` | 字符串 | **接口 A 完整地址**；留空则跳过远端校验、本地直接放行 |
+| `verifyUrl` | 开发地址（见 §6.2） | 字符串 | **接口 A 完整地址**；留空则跳过远端校验、本地直接放行 |
 | `httpTimeoutMs` | `8000` | 1000–60000 | 请求超时（毫秒） |
 | `reverifyOnLaunch` | `false` | 布尔 | 本地已有记录时是否仍重新校验 |
 | `crashOnReject` | `true` | 布尔 | 「明确未通过」时是否崩溃退出 |
@@ -694,6 +712,7 @@ debugLog = true
 | --- | --- | --- |
 | v1.0 | 2026-09-24 | 首版，接口 A/B 为待开发提案；`code` 只认 `0`；时间戳用毫秒 |
 | v2.0 | 2026-09-24 | 接口已在 `northstar_backend` 落地；`code` 认 `0`/`200`；时间改为 `datetime` 字符串；新增 429 限流、日志脱敏、`import-csv` |
+| **v3.4** | 2026-09-24 | **客户端暂对接开发环境**：模组默认 `verifyUrl` 由空值改为开发地址 `http://127.0.0.1:8080/api/beta/verify`（新增 `Config.VERIFY_URL_DEV` / `VERIFY_URL_PROD` 常量，联调稳定后改 `DEFAULT_VERIFY_URL` 一行即可切生产）。**后台原生弹窗改为站内弹窗**：新增 `ConfirmDialog.vue` 取代 `window.confirm`（删除白名单 / 按账号重建 / 覆盖导入三处）与 `window.alert`（内测申请成功与失败两处）。接口 A/B 契约未变 |
 | **v3.3** | 2026-09-24 | **Minecraft ID 与 QQ 同规则：注册后不可更改**（`users` 新增 `mc_id_bound_at`；`PUT /profile` 与 `POST /bind-game` 在已绑定后提交不同值一律 400；格式校验统一走 `support/McIdFormat`）。**内测资格与白名单改为双向联动**：取消资格时 `source=account` 条目自动删除，人工条目不受影响；新增对账接口 `POST /api/admin/beta/whitelist/sync-accounts`。接口 A 契约未变 |
 | **v3.2** | 2026-09-24 | **QQ 一个账号只允许绑定一次，绑定后不可更改**（防止内测资格被转手）。注册即绑定；老账号可在平台新增的「账号设置」页补绑一次；已绑定后改绑返回 400；空值不解绑；填错只能由管理员后台强制改写（留日志）。接口契约未变 |
 | **v3.1** | 2026-09-24 | 打通注册平台与白名单：`users` 新增 `qq`，注册接口收集 QQ；白名单新增 `source` 列；内测审批通过（审核 / 后台发放 / 管理员改账号）时**自动同步**白名单条目，未填 QQ 则阻断审批并提示补填 |

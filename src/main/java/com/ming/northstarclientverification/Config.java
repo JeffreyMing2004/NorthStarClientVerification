@@ -16,6 +16,21 @@ public final class Config {
     /** QQ 号默认规则：5-11 位数字，且不能以 0 开头。 */
     public static final String DEFAULT_QQ_PATTERN = "^[1-9]\\d{4,10}$";
 
+    /** 开发环境验证接口：本机后端（Spring Boot 默认 8080）。 */
+    public static final String VERIFY_URL_DEV = "http://127.0.0.1:8080/api/beta/verify";
+
+    /** 生产环境验证接口：站点与接口同域。 */
+    public static final String VERIFY_URL_PROD = "https://northstar.mingpixel.net/api/beta/verify";
+
+    /**
+     * 当前默认接口地址。
+     *
+     * <p>现阶段先对接<b>开发模式</b>（本机后端），待联调确认稳定后再切换生产模式：
+     * 把下面这一行改成 {@link #VERIFY_URL_PROD} 重新构建即可（也可以不改代码，
+     * 直接改 {@code config/northstarclientverification-common.toml} 里的 {@code verifyUrl}）。</p>
+     */
+    public static final String DEFAULT_VERIFY_URL = VERIFY_URL_DEV;
+
     private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
 
     private static final ForgeConfigSpec.BooleanValue ENABLE_VERIFICATION = BUILDER
@@ -28,8 +43,14 @@ public final class Config {
                      "例如配置 https://example.com/api/northstar/verify，实际请求为",
                      "https://example.com/api/northstar/verify?qq=123456789&name=Steve",
                      "离线模式下不提供 UUID：各启动器生成的 UUID 每次可能不同，无法作为身份依据。",
-                     "留空表示不做远端校验，只写入本地 verification.json")
-            .define("verifyUrl", "");
+                     "",
+                     "当前阶段：默认指向【开发环境】" + VERIFY_URL_DEV,
+                     "　开发环境 = 本机后端，需先在本机启动 northstar_backend（默认 8080）。",
+                     "  若客户端与后端不在同一台机器，请把 127.0.0.1 换成后端所在机器的地址。",
+                     "确认联调稳定后，改为【生产环境】" + VERIFY_URL_PROD,
+                     "",
+                     "留空表示不做远端校验，只写入本地 verification.json（会直接放行）。")
+            .define("verifyUrl", DEFAULT_VERIFY_URL);
 
     private static final ForgeConfigSpec.BooleanValue REVERIFY_ON_LAUNCH = BUILDER
             .comment("本地已有验证记录时，是否仍然弹窗重新走一次远端校验")
@@ -65,7 +86,7 @@ public final class Config {
 
     // ---- 运行时字段（配置加载时同步） ----
     public static boolean enableVerification = true;
-    public static String verifyUrl = "";
+    public static String verifyUrl = DEFAULT_VERIFY_URL;
     public static boolean reverifyOnLaunch = false;
     public static int httpTimeoutMs = 8000;
     public static int openDelayTicks = 20;
