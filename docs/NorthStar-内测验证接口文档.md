@@ -559,9 +559,14 @@ curl -i "$BASE?qq=123456789&name=%E6%98%8E%E6%98%8E"
 编辑 `config/northstarclientverification-common.toml`：
 
 ```toml
-verifyUrl = "http://127.0.0.1:8080/api/beta/verify"
+# 线上（前端站点与接口同域，见 northstar_frontend/deploy/README.md）
+verifyUrl = "https://northstar.mingpixel.net/api/beta/verify"
+# 本地联调时用这个
+# verifyUrl = "http://127.0.0.1:8080/api/beta/verify"
 debugLog = true
 ```
+
+`verifyUrl` **留空时客户端会直接放行（`SKIPPED`）**，所以正式发版必须填上，否则等于没开校验。
 
 `debugLog = true` 后，`logs/latest.log` 会打印每次请求的完整 URL 与判定结果。
 

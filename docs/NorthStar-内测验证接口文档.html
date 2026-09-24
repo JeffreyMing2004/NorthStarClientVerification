@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NorthStar 内测验证接口文档 v3.1</title>
+<title>NorthStar-内测验证接口文档</title>
 <style>
 :root{--bd:#e3e6ea;--tx:#1f2328;--tx2:#57606a;--bg:#fff;--soft:#f6f8fa;--acc:#185FA5;}
 *{box-sizing:border-box}
@@ -1079,9 +1079,13 @@ curl -i &quot;$BASE?qq=123456789&amp;name=%E6%98%8E%E6%98%8E&quot;
 <p>期望：第 1 条 <code>HTTP 200</code> + <code>"success":true,"code":0</code>；第 2、3 条 <code>HTTP 200</code> + <code>"success":false,"code":1001</code>；第 4、5 条 <code>HTTP 400</code>。</p>
 <h3 id="62">6.2 客户端侧配置</h3>
 <p>编辑 <code>config/northstarclientverification-common.toml</code>：</p>
-<pre><code class="language-toml">verifyUrl = &quot;http://127.0.0.1:8080/api/beta/verify&quot;
+<pre><code class="language-toml"># 线上（前端站点与接口同域，见 northstar_frontend/deploy/README.md）
+verifyUrl = &quot;https://northstar.mingpixel.net/api/beta/verify&quot;
+# 本地联调时用这个
+# verifyUrl = &quot;http://127.0.0.1:8080/api/beta/verify&quot;
 debugLog = true
 </code></pre>
+<p><code>verifyUrl</code> <strong>留空时客户端会直接放行（<code>SKIPPED</code>）</strong>，所以正式发版必须填上，否则等于没开校验。</p>
 <p><code>debugLog = true</code> 后，<code>logs/latest.log</code> 会打印每次请求的完整 URL 与判定结果。</p>
 <blockquote>
 <p>想反复触发弹窗：删除 <code>config/northstar/verification.json</code> 后重启游戏。</p>
