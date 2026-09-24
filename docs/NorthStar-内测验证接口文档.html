@@ -81,9 +81,11 @@ li{margin:5px 0;}
 <p><strong>v3.1 补充</strong>：服务端<strong>不启用 MC 白名单</strong>，判定完全在后端做，所以「审批通过」必须落到白名单表。
 注册平台已新增 QQ 字段（注册时提交，落 <code>users.qq</code>），内测审批通过时后端会<strong>自动把
 「QQ + 离线服游戏 ID」同步成白名单条目</strong>，运营不必再手工录入。详见 §3.2 与 §5.3。</p>
-<p><strong>v3.4 现状</strong>：客户端模组<strong>当前对接开发环境</strong>（本机后端 <code>http://127.0.0.1:8080</code>），
-待联调确认稳定后再切换生产环境 <code>https://northstar.mingpixel.net/api/beta/verify</code>；
-切换方式见 §6.2「环境切换」。</p>
+<p><strong>v3.4 历史</strong>：客户端模组曾对接开发环境（本机后端 <code>http://127.0.0.1:8080</code>），
+用于联调期。该阶段已于 v3.7 结束。</p>
+<p><strong>v3.7 现状（当前）</strong>：模组<strong>已切换生产模式</strong>，默认地址为
+<code>https://northstar.mingpixel.net/api/beta/verify</code>。切换前已实测线上接口返回
+<code>HTTP 200</code> + 业务 JSON（而非旧构建的 403 空体），验收命令见 §6.2。</p>
 <p><strong>v3.5 补充</strong>：这条链的起点收紧了——<strong>内测申请必须登录平台账号</strong>，且申请身份只能是被登录的
 那个人（QQ / 游戏ID 从账号读取，不接受代填）。有开放中的计划才会出现申请入口。详见 §5.3。</p>
 </blockquote>
@@ -1246,14 +1248,14 @@ curl -i &quot;$BASE?qq=123456789&amp;name=%E6%98%8E%E6%98%8E&quot;
 <p>期望：第 1 条 <code>HTTP 200</code> + <code>"success":true,"code":0</code>；第 2、3 条 <code>HTTP 200</code> + <code>"success":false,"code":1001</code>；第 4、5 条 <code>HTTP 400</code>。</p>
 <h3 id="62">6.2 客户端侧配置</h3>
 <p>编辑 <code>config/northstarclientverification-common.toml</code>：</p>
-<pre><code class="language-toml"># 当前阶段：开发模式（本机后端）
-verifyUrl = &quot;http://127.0.0.1:8080/api/beta/verify&quot;
-# 联调确认稳定后，切换为生产模式（前端站点与接口同域，见 northstar_frontend/deploy/README.md）
-# verifyUrl = &quot;https://northstar.mingpixel.net/api/beta/verify&quot;
-debugLog = true
+<pre><code class="language-toml"># 生产模式（默认，前端站点与接口同域，见 northstar_frontend/deploy/README.md）
+verifyUrl = &quot;https://northstar.mingpixel.net/api/beta/verify&quot;
+# 本地联调时才改回开发模式（需先启动本机 northstar_backend）
+# verifyUrl = &quot;http://127.0.0.1:8080/api/beta/verify&quot;
+debugLog = false
 </code></pre>
-<h4 id="_8">环境切换（开发 ↔ 生产）</h4>
-<p>现阶段模组<strong>先对接开发模式</strong>（本机后端），待联调确认稳定后再切生产：</p>
+<h4 id="_8">环境切换（生产 ↔ 开发）</h4>
+<p>自 <strong>v3.7</strong> 起模组<strong>默认对接生产模式</strong>；开发地址只在本地联调时临时使用：</p>
 <table>
 <thead>
 <tr>
@@ -1264,22 +1266,23 @@ debugLog = true
 </thead>
 <tbody>
 <tr>
-<td><strong>开发（当前默认）</strong></td>
-<td><code>http://127.0.0.1:8080/api/beta/verify</code></td>
-<td>先在本机启动 <code>northstar_backend</code>（默认 8080）；客户端与后端不在同一台机器时，把 <code>127.0.0.1</code> 换成后端所在机器的地址</td>
+<td><strong>生产（当前默认）</strong></td>
+<td><code>https://northstar.mingpixel.net/api/beta/verify</code></td>
+<td>站点与接口已部署上线（同域反向代理），已实测 200</td>
 </tr>
 <tr>
-<td>生产（待切换）</td>
-<td><code>https://northstar.mingpixel.net/api/beta/verify</code></td>
-<td>站点与接口已部署上线（同域反向代理）</td>
+<td>开发（仅本地联调）</td>
+<td><code>http://127.0.0.1:8080/api/beta/verify</code></td>
+<td>先在本机启动 <code>northstar_backend</code>（默认 8080）；客户端与后端不在同一台机器时，把 <code>127.0.0.1</code> 换成后端所在机器的地址。⚠ <code>127.0.0.1</code> 对玩家无效，<strong>不可随 jar 分发</strong></td>
 </tr>
 </tbody>
 </table>
 <blockquote>
 <p>切换有两种方式，任选其一：
-1. <strong>改配置文件</strong>（推荐，无需重新构建）：把 <code>verifyUrl</code> 换成生产地址后重启游戏即可。
-2. <strong>改代码默认值</strong>：把 <code>Config.DEFAULT_VERIFY_URL</code> 由 <code>VERIFY_URL_DEV</code> 改成 <code>VERIFY_URL_PROD</code> 并重新构建 jar，
-   这样新装玩家拿到的默认配置直接就是生产地址，无需手工修改配置文件。</p>
+1. <strong>改配置文件</strong>（推荐，无需重新构建）：把 <code>verifyUrl</code> 换成目标地址后重启游戏即可。
+2. <strong>改代码默认值</strong>：把 <code>Config.DEFAULT_VERIFY_URL</code> 在 <code>VERIFY_URL_PROD</code> / <code>VERIFY_URL_DEV</code>
+   之间切换并重新构建 jar，这样新装玩家拿到的默认配置直接生效，无需手工改配置文件。
+   当前代码默认值为 <code>VERIFY_URL_PROD</code>。</p>
 </blockquote>
 <h4 id="_9">⚠️ 切生产之前，必须先验一次线上接口</h4>
 <p>生产环境用的必须是<strong>已部署当前后端</strong>的环境。切之前先打一次模组要发的那个 URL：</p>

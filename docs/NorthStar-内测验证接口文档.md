@@ -20,9 +20,12 @@
 > 注册平台已新增 QQ 字段（注册时提交，落 `users.qq`），内测审批通过时后端会**自动把
 > 「QQ + 离线服游戏 ID」同步成白名单条目**，运营不必再手工录入。详见 §3.2 与 §5.3。
 >
-> **v3.4 现状**：客户端模组**当前对接开发环境**（本机后端 `http://127.0.0.1:8080`），
-> 待联调确认稳定后再切换生产环境 `https://northstar.mingpixel.net/api/beta/verify`；
-> 切换方式见 §6.2「环境切换」。
+> **v3.4 历史**：客户端模组曾对接开发环境（本机后端 `http://127.0.0.1:8080`），
+> 用于联调期。该阶段已于 v3.7 结束。
+>
+> **v3.7 现状（当前）**：模组**已切换生产模式**，默认地址为
+> `https://northstar.mingpixel.net/api/beta/verify`。切换前已实测线上接口返回
+> `HTTP 200` + 业务 JSON（而非旧构建的 403 空体），验收命令见 §6.2。
 >
 > **v3.5 补充**：这条链的起点收紧了——**内测申请必须登录平台账号**，且申请身份只能是被登录的
 > 那个人（QQ / 游戏ID 从账号读取，不接受代填）。有开放中的计划才会出现申请入口。详见 §5.3。
@@ -644,26 +647,27 @@ curl -i "$BASE?qq=123456789&name=%E6%98%8E%E6%98%8E"
 编辑 `config/northstarclientverification-common.toml`：
 
 ```toml
-# 当前阶段：开发模式（本机后端）
-verifyUrl = "http://127.0.0.1:8080/api/beta/verify"
-# 联调确认稳定后，切换为生产模式（前端站点与接口同域，见 northstar_frontend/deploy/README.md）
-# verifyUrl = "https://northstar.mingpixel.net/api/beta/verify"
-debugLog = true
+# 生产模式（默认，前端站点与接口同域，见 northstar_frontend/deploy/README.md）
+verifyUrl = "https://northstar.mingpixel.net/api/beta/verify"
+# 本地联调时才改回开发模式（需先启动本机 northstar_backend）
+# verifyUrl = "http://127.0.0.1:8080/api/beta/verify"
+debugLog = false
 ```
 
-#### 环境切换（开发 ↔ 生产）
+#### 环境切换（生产 ↔ 开发）
 
-现阶段模组**先对接开发模式**（本机后端），待联调确认稳定后再切生产：
+自 **v3.7** 起模组**默认对接生产模式**；开发地址只在本地联调时临时使用：
 
 | 环境 | `verifyUrl` | 前置条件 |
 | --- | --- | --- |
-| **开发（当前默认）** | `http://127.0.0.1:8080/api/beta/verify` | 先在本机启动 `northstar_backend`（默认 8080）；客户端与后端不在同一台机器时，把 `127.0.0.1` 换成后端所在机器的地址 |
-| 生产（待切换） | `https://northstar.mingpixel.net/api/beta/verify` | 站点与接口已部署上线（同域反向代理） |
+| **生产（当前默认）** | `https://northstar.mingpixel.net/api/beta/verify` | 站点与接口已部署上线（同域反向代理），已实测 200 |
+| 开发（仅本地联调） | `http://127.0.0.1:8080/api/beta/verify` | 先在本机启动 `northstar_backend`（默认 8080）；客户端与后端不在同一台机器时，把 `127.0.0.1` 换成后端所在机器的地址。⚠ `127.0.0.1` 对玩家无效，**不可随 jar 分发** |
 
 > 切换有两种方式，任选其一：
-> 1. **改配置文件**（推荐，无需重新构建）：把 `verifyUrl` 换成生产地址后重启游戏即可。
-> 2. **改代码默认值**：把 `Config.DEFAULT_VERIFY_URL` 由 `VERIFY_URL_DEV` 改成 `VERIFY_URL_PROD` 并重新构建 jar，
->    这样新装玩家拿到的默认配置直接就是生产地址，无需手工修改配置文件。
+> 1. **改配置文件**（推荐，无需重新构建）：把 `verifyUrl` 换成目标地址后重启游戏即可。
+> 2. **改代码默认值**：把 `Config.DEFAULT_VERIFY_URL` 在 `VERIFY_URL_PROD` / `VERIFY_URL_DEV`
+>    之间切换并重新构建 jar，这样新装玩家拿到的默认配置直接生效，无需手工改配置文件。
+>    当前代码默认值为 `VERIFY_URL_PROD`。
 
 #### ⚠️ 切生产之前，必须先验一次线上接口
 
