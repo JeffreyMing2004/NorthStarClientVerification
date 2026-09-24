@@ -1281,6 +1281,17 @@ debugLog = true
 2. <strong>改代码默认值</strong>：把 <code>Config.DEFAULT_VERIFY_URL</code> 由 <code>VERIFY_URL_DEV</code> 改成 <code>VERIFY_URL_PROD</code> 并重新构建 jar，
    这样新装玩家拿到的默认配置直接就是生产地址，无需手工修改配置文件。</p>
 </blockquote>
+<h4 id="_9">⚠️ 切生产之前，必须先验一次线上接口</h4>
+<p>生产环境用的必须是<strong>已部署当前后端</strong>的环境。切之前先打一次模组要发的那个 URL：</p>
+<pre><code class="language-bash">curl -s &quot;https://northstar.mingpixel.net/api/beta/verify?qq=123456789&amp;name=Steve&quot;
+# 合格：返回 JSON —— {&quot;code&quot;:1001,&quot;success&quot;:false,&quot;msg&quot;:&quot;该 QQ 未获得内测资格&quot;,...}
+#        success:false 也算合格，它只说明「匿名放行已生效、判定在跑」。
+# 不合格：返回 403 且响应体为空 → 生产后端是旧构建，SecurityConfig 里还没有
+#        /api/beta/verify 的 permitAll 放行。
+</code></pre>
+<p>之所以这一步不能省：403 会被客户端判为<strong>服务不可用</strong>，玩家会永久停在验证界面
+——它不消耗重试次数（只有「明确未通过」才计数），<code>blockEscape = true</code> 时连 ESC 都被禁，
+只能退出游戏。也就是说<strong>切生产切错了不是「少数人进不去」，而是全服进不去</strong>。</p>
 <p><code>verifyUrl</code> <strong>留空时客户端会直接放行（<code>SKIPPED</code>）</strong>，所以正式发版必须填上，否则等于没开校验。</p>
 <p><code>debugLog = true</code> 后，<code>logs/latest.log</code> 会打印每次请求的完整 URL 与判定结果。</p>
 <blockquote>
