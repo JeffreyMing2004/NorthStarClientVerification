@@ -98,7 +98,10 @@ public final class ClientVerificationHandler {
     }
 
     /**
-     * 远端明确判定"验证未通过"：构造崩溃报告并结束游戏。
+     * 远端明确判定"验证未通过"且<b>机会已用尽</b>：构造崩溃报告并结束游戏。
+     *
+     * <p>只有累计失败次数达到 {@code Config.maxAttempts}（默认 3）时才会走到这里；
+     * 没达上限时 {@link VerificationScreen} 会留在界面提示剩余次数，不调用本方法。</p>
      *
      * <p>崩溃报告顶部会包含 {@link Northstarclientverification#REJECT_CRASH_DESCRIPTION}，
      * 异常信息为 {@link Northstarclientverification#REJECT_MESSAGE}，同时附带游戏 ID、QQ 号、
@@ -116,7 +119,8 @@ public final class ClientVerificationHandler {
         try {
             CrashReport report = CrashReport.forThrowable(cause, Northstarclientverification.REJECT_CRASH_DESCRIPTION);
             CrashReportCategory category = report.addCategory("NorthStar 内测验证");
-            category.setDetail("结果", "您的内测验证未通过，请重试");
+            category.setDetail("结果", "您的内测验证未通过，尝试次数已用完");
+            category.setDetail("失败次数", VerificationStore.get().failureCount(playerName) + " / " + Config.maxAttempts);
             category.setDetail("游戏ID", playerName);
             category.setDetail("提交的 QQ 号", qq);
             category.setDetail("验证接口", result.url());

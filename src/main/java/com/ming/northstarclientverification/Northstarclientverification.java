@@ -21,11 +21,15 @@ public class Northstarclientverification {
     /** 与 META-INF/mods.toml 中的 modId 保持一致。 */
     public static final String MODID = "northstarclientverification";
 
-    /** 验证未通过时写进崩溃报告的 Description（会出现在 crash-reports 文件顶部）。 */
-    public static final String REJECT_CRASH_DESCRIPTION = "northstar 北极战区：您的内测验证未通过，请重试";
+    /**
+     * 验证未通过且<b>机会已用尽</b>时写进崩溃报告的 Description（会出现在 crash-reports 文件顶部）。
+     *
+     * <p>注意措辞：走到这里游戏马上就要退出，所以写「尝试次数已用完」而不是「请重试」。</p>
+     */
+    public static final String REJECT_CRASH_DESCRIPTION = "northstar 北极战区：您的内测验证未通过，尝试次数已用完";
 
     /** 抛出异常时携带的说明文案。 */
-    public static final String REJECT_MESSAGE = "因northstar 北极战区：您的内测验证未通过，请重试";
+    public static final String REJECT_MESSAGE = "因northstar 北极战区：您的内测验证未通过，尝试次数已用完";
 
     public static final Logger LOGGER = LogUtils.getLogger();
 

@@ -7,12 +7,16 @@
   "northstar.verification.button.verifying": "验证中...",
   "northstar.verification.button.quit": "退出游戏",
   "northstar.verification.status.verifying": "正在请求验证服务器...",
+  "northstar.verification.attempts.remaining": "剩余验证次数：%s / %s",
+  "northstar.verification.attempts.exhausted": "验证次数已用完（共 %s 次），填对 QQ 仍可通过",
   "northstar.verification.error.empty": "请输入 QQ 号",
   "northstar.verification.error.format": "QQ 号格式不正确，应为 5-11 位数字",
   "northstar.verification.error.save": "本地保存失败，请检查 config/northstar 目录是否可写",
   "northstar.verification.error.network": "无法连接验证服务器：%s，请重试",
   "northstar.verification.error.http": "验证服务器响应异常（HTTP %s：%s），请重试",
   "northstar.verification.error.rejected": "您的内测验证未通过，请重试",
+  "northstar.verification.error.rejected.remaining": "验证未通过，还剩 %s 次机会（共 %s 次）",
+  "northstar.verification.error.rejected.exhausted": "验证未通过，%s 次机会已用完，游戏即将退出",
   "northstar.verification.success": "验证成功，已绑定 QQ：%s",
   "northstar.verification.saved": "验证信息已保存至 %s"
 }

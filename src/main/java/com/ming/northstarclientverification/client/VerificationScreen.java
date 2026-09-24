@@ -2,6 +2,7 @@ package com.ming.northstarclientverification.client;
 
 import com.ming.northstarclientverification.Config;
 import com.ming.northstarclientverification.Northstarclientverification;
+import com.ming.northstarclientverification.verification.AttemptPolicy;
 import com.ming.northstarclientverification.verification.QqValidator;
 import com.ming.northstarclientverification.verification.RemoteVerifier;
 import com.ming.northstarclientverification.verification.VerificationStore;
@@ -25,9 +26,13 @@ import org.lwjgl.glfw.GLFW;
  * 会异步向远端接口发起 GET 校验，同时上报自动识别到的游戏 ID：</p>
  * <ul>
  *   <li>通过 → 写入 {@code config/northstar/verification.json} 并回到主界面</li>
- *   <li>明确未通过 → 交由 {@link ClientVerificationHandler#crashOnRejected} 生成崩溃报告并退出游戏</li>
- *   <li>服务不可用 → 停在当前界面提示原因，允许重试</li>
+ *   <li>明确未通过 → 累计一次失败；<b>未达 {@code maxAttempts}（默认 3）次时留在界面提示剩余机会</b>，
+ *       达到上限才交由 {@link ClientVerificationHandler#crashOnRejected} 生成崩溃报告并退出游戏</li>
+ *   <li>服务不可用 → 停在当前界面提示原因，允许无限重试（不消耗机会）</li>
  * </ul>
+ *
+ * <p>失败次数按游戏 ID 持久化在 {@code verification.json}，重启游戏不会重置；
+ * 判定规则见 {@link com.ming.northstarclientverification.verification.AttemptPolicy}。</p>
  *
  * <p>窗口上会显示自动识别到的游戏 ID，方便玩家在验证被拒时把它报给管理员核对绑定。</p>
  */
@@ -103,6 +108,21 @@ public class VerificationScreen extends Screen {
         this.addRenderableWidget(this.quitButton);
 
         this.applyVerifyingState();
+
+        // 之前填错过就先把剩余机会讲清楚，别等玩家提交完才知道还剩几次
+        // （init 在窗口缩放时会被再次调用，已有状态提示时不覆盖）
+        if (this.statusMessage == null) {
+            int used = VerificationStore.get().failureCount(this.playerName);
+            if (used > 0) {
+                int remaining = AttemptPolicy.remaining(used, Config.maxAttempts);
+                setStatus(remaining > 0
+                                ? Component.translatable("northstar.verification.attempts.remaining",
+                                        remaining, Config.maxAttempts)
+                                : Component.translatable("northstar.verification.attempts.exhausted",
+                                        Config.maxAttempts),
+                        remaining > 0 ? COLOR_INFO : COLOR_ERROR);
+            }
+        }
     }
 
     @Override
@@ -236,19 +256,29 @@ public class VerificationScreen extends Screen {
         }
     }
 
-    /** 远端明确判定未通过：生成崩溃报告并结束游戏。 */
+    /** 远端明确判定未通过：累计一次失败，未用尽则留在界面重试。 */
     private void onRejected(String qq, VerifyResult result) {
-        Northstarclientverification.LOGGER.warn("[NorthStar] 游戏 ID {} 内测验证未通过：QQ={} HTTP={} 响应={}",
-                this.playerName, qq, result.httpCode(), RemoteVerifier.abbreviate(result.body(), 200));
+        int used = VerificationStore.get().recordFailure(this.playerName);
+        int limit = Config.maxAttempts;
+        int remaining = AttemptPolicy.remaining(used, limit);
 
-        setStatus(Component.translatable("northstar.verification.error.rejected"), COLOR_ERROR);
+        Northstarclientverification.LOGGER.warn(
+                "[NorthStar] 游戏 ID {} 内测验证未通过（第 {}/{} 次，剩余 {} 次）：QQ={} HTTP={} 响应={}",
+                this.playerName, used, limit, remaining, qq,
+                result.httpCode(), RemoteVerifier.abbreviate(result.body(), 200));
 
-        if (Config.crashOnReject) {
+        if (AttemptPolicy.decide(used, limit, Config.crashWhenExhausted) == AttemptPolicy.Decision.CRASH) {
+            setStatus(Component.translatable("northstar.verification.error.rejected.exhausted", limit), COLOR_ERROR);
             ClientVerificationHandler.crashOnRejected(this.playerName, qq, result);
-        } else {
-            this.verifying = false;
-            applyVerifyingState();
+            return;
         }
+
+        this.verifying = false;
+        applyVerifyingState();
+        setStatus(Config.crashWhenExhausted
+                        ? Component.translatable("northstar.verification.error.rejected.remaining", remaining, limit)
+                        : Component.translatable("northstar.verification.error.rejected"),
+                COLOR_ERROR);
     }
 
     // ------------------------------------------------------------------ 界面状态

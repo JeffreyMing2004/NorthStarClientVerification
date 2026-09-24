@@ -7,12 +7,16 @@
   "northstar.verification.button.verifying": "Verifying...",
   "northstar.verification.button.quit": "Quit Game",
   "northstar.verification.status.verifying": "Contacting verification server...",
+  "northstar.verification.attempts.remaining": "Attempts left: %s of %s",
+  "northstar.verification.attempts.exhausted": "No attempts left (of %s); the correct QQ can still pass",
   "northstar.verification.error.empty": "Please enter your QQ number",
   "northstar.verification.error.format": "Invalid QQ number, expected 5-11 digits",
   "northstar.verification.error.save": "Failed to save locally. Check that config/northstar is writable",
   "northstar.verification.error.network": "Cannot reach verification server: %s. Please retry",
   "northstar.verification.error.http": "Verification server error (HTTP %s: %s). Please retry",
   "northstar.verification.error.rejected": "Your beta verification was rejected. Please retry",
+  "northstar.verification.error.rejected.remaining": "Verification failed. %s attempt(s) left of %s",
+  "northstar.verification.error.rejected.exhausted": "Verification failed. All %s attempts used; the game will now exit",
   "northstar.verification.success": "Verified, bound QQ: %s",
   "northstar.verification.saved": "Verification saved to %s"
 }

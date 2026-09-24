@@ -68,11 +68,21 @@ public final class Config {
             .comment("验证完成前是否禁止用 ESC 关闭验证窗口（仍可通过\"退出游戏\"按钮离开）")
             .define("blockEscape", true);
 
-    private static final ForgeConfigSpec.BooleanValue CRASH_ON_REJECT = BUILDER
-            .comment("远端明确判定\"验证未通过\"时，是否生成崩溃报告并退出游戏。",
-                     "只有接口返回 2xx 且 success=false（或 code!=0）才算\"未通过\"；",
-                     "网络超时、HTTP 4xx/5xx、响应体无法解析都按\"服务不可用\"处理，停在界面让玩家重试。")
-            .define("crashOnReject", true);
+    private static final ForgeConfigSpec.IntValue MAX_ATTEMPTS = BUILDER
+            .comment("允许验证失败几次，达到该次数后才会崩溃退出（默认 3 次）。",
+                     "只有\"明确未通过\"（接口返回 2xx 且 success=false）才计数；",
+                     "网络超时、HTTP 4xx/5xx、响应体无法解析都按\"服务不可用\"处理，",
+                     "停在界面让玩家重试，且不消耗机会。",
+                     "",
+                     "计数按游戏ID持久化在 config/northstar/verification.json 里，",
+                     "重启游戏不会重置；验证通过后自动清零。",
+                     "设为 1 即恢复\"一次未通过就崩\"的旧行为。")
+            .defineInRange("maxAttempts", 3, 1, 100);
+
+    private static final ForgeConfigSpec.BooleanValue CRASH_WHEN_EXHAUSTED = BUILDER
+            .comment("机会用尽后是否生成崩溃报告并退出游戏。",
+                     "设为 false 时永不崩溃，只会停在验证界面提示剩余次数（调试用）。")
+            .define("crashWhenExhausted", true);
 
     private static final ForgeConfigSpec.ConfigValue<String> QQ_PATTERN = BUILDER
             .comment("QQ 号校验正则，默认 5-11 位数字且不以 0 开头")
@@ -91,7 +101,10 @@ public final class Config {
     public static int httpTimeoutMs = 8000;
     public static int openDelayTicks = 20;
     public static boolean blockEscape = true;
-    public static boolean crashOnReject = true;
+    /** 允许的「明确未通过」次数，达到后崩溃退出。 */
+    public static int maxAttempts = 3;
+    /** 机会用尽后是否崩溃；false 表示只提示、永不崩溃。 */
+    public static boolean crashWhenExhausted = true;
     public static boolean debugLog = false;
     /** 已编译的 QQ 号校验正则。 */
     public static Pattern qqRegex = Pattern.compile(DEFAULT_QQ_PATTERN);
@@ -112,7 +125,8 @@ public final class Config {
         httpTimeoutMs = HTTP_TIMEOUT_MS.get();
         openDelayTicks = OPEN_DELAY_TICKS.get();
         blockEscape = BLOCK_ESCAPE.get();
-        crashOnReject = CRASH_ON_REJECT.get();
+        maxAttempts = MAX_ATTEMPTS.get();
+        crashWhenExhausted = CRASH_WHEN_EXHAUSTED.get();
         debugLog = DEBUG_LOG.get();
 
         String pattern = QQ_PATTERN.get();
@@ -124,7 +138,8 @@ public final class Config {
         }
 
         Northstarclientverification.LOGGER.info(
-                "[NorthStar] 配置已加载：enableVerification={}, verifyUrl={}, httpTimeoutMs={}, crashOnReject={}",
-                enableVerification, verifyUrl.isEmpty() ? "(未配置)" : verifyUrl, httpTimeoutMs, crashOnReject);
+                "[NorthStar] 配置已加载：enableVerification={}, verifyUrl={}, httpTimeoutMs={}, maxAttempts={}, crashWhenExhausted={}",
+                enableVerification, verifyUrl.isEmpty() ? "(未配置)" : verifyUrl, httpTimeoutMs,
+                maxAttempts, crashWhenExhausted);
     }
 }

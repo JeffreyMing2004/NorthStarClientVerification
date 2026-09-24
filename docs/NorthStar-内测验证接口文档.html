@@ -47,7 +47,7 @@ li{margin:5px 0;}
 <tbody>
 <tr>
 <td>文档版本</td>
-<td><strong>v3.5</strong>（现状：身份标识为「QQ + 游戏ID」；QQ/游戏ID 均注册后不可更改；内测资格与客户端白名单双向联动；内测申请需登录平台账号；<strong>客户端暂对接开发环境</strong>）</td>
+<td><strong>v3.6</strong>（现状：身份标识为「QQ + 游戏ID」；QQ/游戏ID 均注册后不可更改；内测资格与客户端白名单双向联动；内测申请需登录平台账号；<strong>验证失败 3 次才崩溃</strong>；<strong>客户端暂对接开发环境</strong>）</td>
 </tr>
 <tr>
 <td>编写日期</td>
@@ -100,18 +100,24 @@ li{margin:5px 0;}
 <tbody>
 <tr>
 <td><strong>通过</strong></td>
-<td>写入本地 <code>config/northstar/verification.json</code>，放行进入游戏</td>
+<td>写入本地 <code>config/northstar/verification.json</code>，放行进入游戏；<strong>并清零失败计数</strong></td>
 </tr>
 <tr>
 <td><strong>明确未通过</strong></td>
-<td>生成崩溃报告并<strong>退出游戏</strong>，日志文案固定为「因northstar 北极战区：您的内测验证未通过，请重试」</td>
+<td>累计一次失败。未达 <code>maxAttempts</code>（默认 <strong>3</strong> 次）时留在窗口提示「还剩 N 次机会」；<strong>达到次数后</strong>才生成崩溃报告并<strong>退出游戏</strong>，文案固定为「因northstar 北极战区：您的内测验证未通过，尝试次数已用完」</td>
 </tr>
 <tr>
 <td><strong>服务不可用</strong></td>
-<td>停在验证窗口红字提示原因，<strong>玩家可重试，不崩溃</strong></td>
+<td>停在验证窗口红字提示原因，<strong>玩家可重试，不崩溃，且不消耗次数</strong></td>
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p><strong>失败次数是「按游戏 ID 持久化」的</strong>：记在 <code>verification.json</code> 的 <code>failures</code> 字段里，
+<strong>重启游戏不会重置</strong>，只有验证通过才归零。因此「重开游戏换三次机会」是行不通的。
+反过来说，如果你连错三次被锁，需要删掉 <code>verification.json</code> 里对应的 <code>failures</code> 条目
+（或整个文件）才能恢复——把 <code>maxAttempts</code> 调大 / 设为 <code>1</code>（恢复旧行为）也可以。</p>
+</blockquote>
 <h3 id="11-uuid">1.1 为什么不用 UUID</h3>
 <table>
 <thead>
@@ -293,12 +299,12 @@ li{margin:5px 0;}
 <tr>
 <td>4</td>
 <td><code>qq</code> 在白名单中<strong>完全没有记录</strong></td>
-<td>200 + <code>success:false</code>（<strong>未通过，崩溃</strong>）</td>
+<td>200 + <code>success:false</code>（<strong>未通过，计一次失败</strong>）</td>
 </tr>
 <tr>
 <td>5</td>
 <td>有记录，但<strong>全部</strong>处于禁用 / 已过期</td>
-<td>200 + <code>success:false</code>（<strong>未通过，崩溃</strong>）</td>
+<td>200 + <code>success:false</code>（<strong>未通过，计一次失败</strong>）</td>
 </tr>
 <tr>
 <td>6</td>
@@ -313,7 +319,7 @@ li{margin:5px 0;}
 <tr>
 <td>8</td>
 <td>有可用记录，但都绑定了别的游戏ID</td>
-<td>200 + <code>success:false</code>（<strong>未通过，崩溃</strong>）</td>
+<td>200 + <code>success:false</code>（<strong>未通过，计一次失败</strong>）</td>
 </tr>
 <tr>
 <td>9</td>
@@ -322,6 +328,10 @@ li{margin:5px 0;}
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p>表中 4 / 5 / 8 三项都只<strong>累计一次失败</strong>；累计达到 <code>maxAttempts</code>（默认 3）次客户端才崩溃退出。
+1 / 2 / 3 / 9 属于「服务不可用」，可以无限重试且<strong>不消耗次数</strong>。</p>
+</blockquote>
 <h4 id="qq"><code>qq</code> 从哪来</h4>
 <table>
 <thead>
@@ -512,11 +522,12 @@ li{margin:5px 0;}
 <blockquote>
 <p><code>data</code> 只作展示 / 排查用，客户端<strong>不做</strong>任何字段校验。</p>
 </blockquote>
-<h4 id="_5">❌ 明确未通过（<strong>会导致玩家客户端崩溃退出</strong>）</h4>
+<h4 id="3">❌ 明确未通过（<strong>累计 3 次后玩家客户端才会崩溃退出</strong>）</h4>
 <pre><code class="language-json">{ &quot;success&quot;: false, &quot;code&quot;: 1001, &quot;msg&quot;: &quot;该 QQ 未获得内测资格&quot;, &quot;data&quot;: null }
 </code></pre>
-<p><code>msg</code> 取值见 §3.2 的文案表。</p>
-<h4 id="_6">⚠️ 服务不可用（玩家可重试，不崩溃）</h4>
+<p><code>msg</code> 取值见 §3.2 的文案表。每收到一次该响应，客户端记一次失败并在窗口提示剩余次数；
+达到 <code>maxAttempts</code>（默认 3）次才生成崩溃报告退出游戏。</p>
+<h4 id="_5">⚠️ 服务不可用（玩家可重试，不崩溃）</h4>
 <p>必须使用<strong>非 2xx</strong> 状态码：</p>
 <table>
 <thead>
@@ -601,7 +612,7 @@ li{margin:5px 0;}
 </tr>
 <tr>
 <td>JSON 布尔 <code>false</code></td>
-<td>❌ 未通过（崩溃）</td>
+<td>❌ 未通过（<strong>计一次失败</strong>）</td>
 </tr>
 <tr>
 <td>字符串 <code>"true"</code>（忽略大小写）</td>
@@ -609,7 +620,7 @@ li{margin:5px 0;}
 </tr>
 <tr>
 <td>其它字符串（<code>"false"</code>、<code>"1"</code>、<code>"yes"</code>）</td>
-<td>❌ <strong>未通过（崩溃）</strong></td>
+<td>❌ <strong>未通过（计一次失败）</strong></td>
 </tr>
 <tr>
 <td>数字（<code>1</code>、<code>0</code>）</td>
@@ -636,7 +647,7 @@ li{margin:5px 0;}
 </tr>
 <tr>
 <td>其它整数（<code>1</code>、<code>404</code>、<code>1001</code> …）</td>
-<td>❌ 未通过（崩溃）</td>
+<td>❌ 未通过（<strong>计一次失败</strong>）</td>
 </tr>
 <tr>
 <td>可解析为整数的字符串 <code>"0"</code> / <code>"200"</code></td>
@@ -655,11 +666,14 @@ li{margin:5px 0;}
 <blockquote>
 <p><strong>优先级</strong>：<code>success</code> 优先于 <code>code</code>。两者同时存在时以 <code>success</code> 为准。
 服务端当前同时输出两者，<code>success</code> 命中规则 3，<code>code</code> 作为兜底。</p>
+<p><strong>「未通过」不等于立刻崩溃</strong>：每次「未通过」只累计一次失败，达到 <code>maxAttempts</code>
+（默认 3）次才崩溃退出。次数按游戏 ID 持久化，重启不清零，验证通过后归零。
+判定规则的源码入口是 <code>verification/AttemptPolicy</code>（纯逻辑，可独立测试）。</p>
 </blockquote>
-<h4 id="_7">🚨 必须避开的三个坑</h4>
+<h4 id="_6">🚨 必须避开的三个坑</h4>
 <ol>
-<li><strong>服务异常绝不能返回 <code>200</code> + <code>success:false</code></strong> —— 会被判「明确未通过」，直接把玩家踢出游戏并生成崩溃日志。<strong>服务异常一律用非 2xx。</strong></li>
-<li><strong><code>success</code> 必须用 JSON 布尔</strong>。写数字 <code>1</code> → 判「服务不可用」；写字符串 <code>"1"</code> → 判「未通过」（崩溃）。</li>
+<li><strong>服务异常绝不能返回 <code>200</code> + <code>success:false</code></strong> —— 会被判「明确未通过」，白白消耗玩家的验证机会，连续 3 次后玩家被踢出游戏并生成崩溃日志。<strong>服务异常一律用非 2xx。</strong></li>
+<li><strong><code>success</code> 必须用 JSON 布尔</strong>。写数字 <code>1</code> → 判「服务不可用」；写字符串 <code>"1"</code> → 判「未通过」（计一次失败）。</li>
 <li><strong>HTTP 200 必须携带合法 JSON 对象</strong>。返回 HTML 错误页、空响应体、JSON 数组都会被判「服务不可用」。</li>
 </ol>
 <hr>
@@ -870,7 +884,7 @@ li{margin:5px 0;}
 <tbody>
 <tr>
 <td><code>result</code></td>
-<td><code>pass</code> / <code>reject</code>（玩家会崩溃）/ <code>error</code>（玩家可重试）</td>
+<td><code>pass</code> / <code>reject</code>（计一次失败，满 <code>maxAttempts</code> 后崩溃）/ <code>error</code>（玩家可重试）</td>
 </tr>
 <tr>
 <td><code>matchedBy</code></td>
@@ -927,7 +941,7 @@ li{margin:5px 0;}
 </table>
 <p>环境变量覆盖：<code>VERIFY_QQ_PATTERN</code>、<code>VERIFY_RATE_LIMIT_PER_MINUTE</code>、<code>VERIFY_REQUIRE_MC_ID</code>。</p>
 <blockquote>
-<p>⚠️ 把 <code>require-mc-id</code> 改成 <code>true</code> 之前，<strong>务必确认白名单里每一条都填了 <code>mcId</code></strong>，否则这些 QQ 的玩家会全部崩溃退出。</p>
+<p>⚠️ 把 <code>require-mc-id</code> 改成 <code>true</code> 之前，<strong>务必确认白名单里每一条都填了 <code>mcId</code></strong>，否则这些 QQ 的玩家会全部被判未通过（连试 <code>maxAttempts</code> 次后崩溃退出）。</p>
 <p>限流是<strong>单机内存</strong>滑动窗口，重启即清零、多实例不共享。当前部署规模足够；若将来多实例，建议改用 Redis（项目已引入 <code>spring-boot-starter-data-redis</code>）。</p>
 </blockquote>
 <h3 id="52-ip">5.2 来源 IP 解析</h3>
@@ -1041,9 +1055,9 @@ li{margin:5px 0;}
 审批通过时也就没有 <code>users.qq</code> / <code>users.mc_id</code> 可用来同步白名单——
 「审批通过」会变成一条查不到人、也进不去游戏的空记录。</p>
 </blockquote>
-<h4 id="_8">白名单条目的来源（与注册平台的关系）</h4>
+<h4 id="_7">白名单条目的来源（与注册平台的关系）</h4>
 <p>服务端不启用 MC 白名单、也不校验 UUID，判定完全在后端做。因此「审批通过」必须落到白名单表，
-否则玩家会被判「未通过」而客户端崩溃。白名单有两类来源，靠 <code>source</code> 区分：</p>
+否则玩家会被判「未通过」（连试 <code>maxAttempts</code> 次后客户端崩溃）。白名单有两类来源，靠 <code>source</code> 区分：</p>
 <table>
 <thead>
 <tr>
@@ -1074,7 +1088,7 @@ li{margin:5px 0;}
 </ol>
 <p>触发时机：审核申请通过 / 后台直接发放 / 管理员修改账号（QQ、游戏ID、内测状态）时，
 <strong>同步失败会让整个审批操作失败并报错</strong>（提示先去补填 QQ），
-避免出现「后台显示已批准、玩家进游戏却被判未通过而崩溃」这种状态。
+避免出现「后台显示已批准、玩家进游戏却被判未通过（连试 <code>maxAttempts</code> 次即崩溃）」这种状态。
 注册或改绑时「认领」已有资格属于自动流程，缺 QQ 只记警告，不会打断玩家注册。</p>
 <blockquote>
 <p><code>users</code> 表因此新增了 <code>qq</code> 列（varchar(16)，可空）。存量账号可由管理员在后台「编辑玩家」补填，
@@ -1238,7 +1252,7 @@ verifyUrl = &quot;http://127.0.0.1:8080/api/beta/verify&quot;
 # verifyUrl = &quot;https://northstar.mingpixel.net/api/beta/verify&quot;
 debugLog = true
 </code></pre>
-<h4 id="_9">环境切换（开发 ↔ 生产）</h4>
+<h4 id="_8">环境切换（开发 ↔ 生产）</h4>
 <p>现阶段模组<strong>先对接开发模式</strong>（本机后端），待联调确认稳定后再切生产：</p>
 <table>
 <thead>
@@ -1271,11 +1285,19 @@ debugLog = true
 <p><code>debugLog = true</code> 后，<code>logs/latest.log</code> 会打印每次请求的完整 URL 与判定结果。</p>
 <blockquote>
 <p>想反复触发弹窗：删除 <code>config/northstar/verification.json</code> 后重启游戏。</p>
-<p>本地 <code>verification.json</code> 的 <code>players</code> 键是<strong>游戏ID（小写）</strong>，例如：
+<p>本地 <code>verification.json</code> 的 <code>players</code> 键是<strong>游戏ID（小写）</strong>；<code>failures</code> 记录各游戏ID
+累计的验证失败次数（v3.6 起）。例如：
 <code>json
-{ "version": 2, "players": { "steve": { "name": "Steve", "qq": "123456789",
-  "firstVerifiedAt": 1758680000000, "lastVerifiedAt": 1758680000000 } } }</code>
+{
+  "version": 3,
+  "players":  { "steve": { "name": "Steve", "qq": "123456789",
+                           "firstVerifiedAt": 1758680000000, "lastVerifiedAt": 1758680000000 } },
+  "failures": { "alex": 2 }
+}</code>
 v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</strong>，无需手工处理。</p>
+<p><strong>玩家被锁住时怎么恢复</strong>：删掉 <code>failures</code> 里对应的那一项（或整个文件）后重启游戏，
+次数即归零。注意 <code>players</code> 与 <code>failures</code> 是两套独立数据——填错 QQ <strong>不会</strong>往 <code>players</code>
+里写条目，所以「失败过」永远不会被当成「已通过」。</p>
 </blockquote>
 <hr>
 <h2 id="7">7. 安全与风险提示</h2>
@@ -1325,10 +1347,16 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 <td>本地已有记录时是否仍重新校验</td>
 </tr>
 <tr>
-<td><code>crashOnReject</code></td>
+<td><code>maxAttempts</code></td>
+<td><code>3</code></td>
+<td>1–100</td>
+<td>允许验证失败几次，<strong>达到该次数才崩溃退出</strong>；只有「明确未通过」计数，服务不可用不计数。计数按游戏ID持久化，重启不清零，验证通过后归零。设为 <code>1</code> 即恢复旧行为</td>
+</tr>
+<tr>
+<td><code>crashWhenExhausted</code></td>
 <td><code>true</code></td>
 <td>布尔</td>
-<td>「明确未通过」时是否崩溃退出</td>
+<td>次数用尽后是否崩溃退出；设为 <code>false</code> 则永不崩溃（调试用）</td>
 </tr>
 <tr>
 <td><code>openDelayTicks</code></td>
@@ -1358,6 +1386,8 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 </table>
 <blockquote>
 <p><code>verifyUrl</code> 只接受 <code>http://</code> / <code>https://</code> 开头，其它协议直接判为服务不可用、不发请求。</p>
+<p><code>crashOnReject</code> 是 v3.6 之前的旧配置项（语义为「一次未通过就崩」），已被
+<code>maxAttempts</code> + <code>crashWhenExhausted</code> 取代；旧文件里残留的这一行会被 Forge 自动忽略。</p>
 </blockquote>
 <hr>
 <h2 id="9">9. 验收对照表</h2>
@@ -1393,6 +1423,26 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 <tr>
 <td>服务异常一律非 2xx，且客户端<strong>不崩溃</strong></td>
 <td><code>VerifyIT</code> 400/429/500 三用例</td>
+</tr>
+<tr>
+<td><strong>未通过 1 / 2 次时可重试，第 3 次才崩溃</strong></td>
+<td><code>VerifyIT</code> <code>AttemptPolicy</code> 边界断言（含第 0 / 4 次）</td>
+</tr>
+<tr>
+<td><strong><code>maxAttempts=1</code> 时等于旧的「一次即崩」</strong></td>
+<td><code>VerifyIT</code> <code>AttemptPolicy</code> 断言</td>
+</tr>
+<tr>
+<td><strong><code>crashWhenExhausted=false</code> 时永不崩溃</strong></td>
+<td><code>VerifyIT</code> <code>AttemptPolicy</code> 断言</td>
+</tr>
+<tr>
+<td><strong>剩余次数不会算成负数 / <code>maxAttempts=0</code> 兜底为 1</strong></td>
+<td><code>VerifyIT</code> <code>AttemptPolicy</code> 断言</td>
+</tr>
+<tr>
+<td><strong>崩溃文案不再写「请重试」</strong></td>
+<td><code>VerifyIT</code> 直接引用 <code>REJECT_*</code> 常量做反断言</td>
 </tr>
 <tr>
 <td>响应体 UTF-8、<code>Content-Type: application/json</code></td>
@@ -1465,7 +1515,8 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 </tbody>
 </table>
 <blockquote>
-<p><strong>上线前务必确认白名单已导入。</strong> 若白名单为空，<strong>所有玩家都会被判「未通过」并崩溃</strong> —— 属于重大线上事故。可先只给 1 个测试 QQ（并填好游戏ID）发放资格，确认能正常进入后再批量导入。</p>
+<p><strong>上线前务必确认白名单已导入。</strong> 若白名单为空，<strong>所有玩家都会被判「未通过」，连试 <code>maxAttempts</code>（默认 3）次后崩溃退出</strong> —— 属于重大线上事故。可先只给 1 个测试 QQ（并填好游戏ID）发放资格，确认能正常进入后再批量导入。</p>
+<p>想临时把影响降到最低，可先把 <code>maxAttempts</code> 调大或把 <code>crashWhenExhausted</code> 设为 <code>false</code>（玩家可无限重试、不崩溃），修好白名单后再恢复。</p>
 </blockquote>
 <hr>
 <h2 id="10">10. 变更记录</h2>
@@ -1487,6 +1538,11 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
 <td>v2.0</td>
 <td>2026-09-24</td>
 <td>接口已在 <code>northstar_backend</code> 落地；<code>code</code> 认 <code>0</code>/<code>200</code>；时间改为 <code>datetime</code> 字符串；新增 429 限流、日志脱敏、<code>import-csv</code></td>
+</tr>
+<tr>
+<td><strong>v3.6</strong></td>
+<td>2026-09-24</td>
+<td><strong>验证失败改为「允许 3 次」</strong>：新增 <code>maxAttempts</code>（默认 3）与 <code>crashWhenExhausted</code>，取代旧的 <code>crashOnReject</code>（旧语义为一次未通过即崩）。只有「明确未通过」（2xx 且 <code>success=false</code>）计数，服务不可用（超时 / 4xx / 5xx / 无法解析）仍可无限重试且不消耗次数。次数<strong>按游戏 ID 持久化</strong>在 <code>verification.json</code> 的新增 <code>failures</code> 字段（文件格式 v3），<strong>重启游戏不清零，验证通过才归零</strong>。判定规则抽成纯逻辑类 <code>verification/AttemptPolicy</code> 以便独立测试。验证窗口会显示「剩余验证次数：N / 3」，崩溃报告新增「失败次数」明细；崩溃文案由「请重试」改为「尝试次数已用完」。接口 A/B 契约未变</td>
 </tr>
 <tr>
 <td><strong>v3.5</strong></td>
@@ -1558,7 +1614,7 @@ v1 版按 UUID 索引的旧文件会在首次载入时<strong>自动迁移</stro
     return null;                                      // -&gt; 服务不可用
 }
 </code></pre>
-<p>返回 <code>true</code> → 通过；<code>false</code> → 明确未通过（客户端崩溃）；<code>null</code> → 服务不可用（玩家可重试）。</p>
+<p>返回 <code>true</code> → 通过；<code>false</code> → 明确未通过（计一次失败，满 <code>maxAttempts</code> 次后客户端崩溃）；<code>null</code> → 服务不可用（玩家可重试）。</p>
 <h2 id="b-url">附录 B：客户端 URL 构造规则</h2>
 <pre><code>base = 配置项 verifyUrl（已去首尾空白）
 分隔符 = base 中已含 '?' ? '&amp;' : '?'

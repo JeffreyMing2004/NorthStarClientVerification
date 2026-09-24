@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | **v3.5**（现状：身份标识为「QQ + 游戏ID」；QQ/游戏ID 均注册后不可更改；内测资格与客户端白名单双向联动；内测申请需登录平台账号；**客户端暂对接开发环境**） |
+| 文档版本 | **v3.6**（现状：身份标识为「QQ + 游戏ID」；QQ/游戏ID 均注册后不可更改；内测资格与客户端白名单双向联动；内测申请需登录平台账号；**验证失败 3 次才崩溃**；**客户端暂对接开发环境**） |
 | 编写日期 | 2026-09-24 |
 | 客户端 | NorthStar Client Verification 1.0-SNAPSHOT（Minecraft Forge 1.20.1） |
 | 服务端 | northstar_backend（Spring Boot 4.1.1 / Java 17） |
@@ -35,9 +35,14 @@
 
 | 判定 | 客户端行为 |
 | --- | --- |
-| **通过** | 写入本地 `config/northstar/verification.json`，放行进入游戏 |
-| **明确未通过** | 生成崩溃报告并**退出游戏**，日志文案固定为「因northstar 北极战区：您的内测验证未通过，请重试」 |
-| **服务不可用** | 停在验证窗口红字提示原因，**玩家可重试，不崩溃** |
+| **通过** | 写入本地 `config/northstar/verification.json`，放行进入游戏；**并清零失败计数** |
+| **明确未通过** | 累计一次失败。未达 `maxAttempts`（默认 **3** 次）时留在窗口提示「还剩 N 次机会」；**达到次数后**才生成崩溃报告并**退出游戏**，文案固定为「因northstar 北极战区：您的内测验证未通过，尝试次数已用完」 |
+| **服务不可用** | 停在验证窗口红字提示原因，**玩家可重试，不崩溃，且不消耗次数** |
+
+> **失败次数是「按游戏 ID 持久化」的**：记在 `verification.json` 的 `failures` 字段里，
+> **重启游戏不会重置**，只有验证通过才归零。因此「重开游戏换三次机会」是行不通的。
+> 反过来说，如果你连错三次被锁，需要删掉 `verification.json` 里对应的 `failures` 条目
+> （或整个文件）才能恢复——把 `maxAttempts` 调大 / 设为 `1`（恢复旧行为）也可以。
 
 ### 1.1 为什么不用 UUID
 
@@ -121,12 +126,15 @@ https://<后端域名>/api/beta/verify?qq=123456789&name=Steve
 | 1 | `qq` 不匹配 `^[1-9]\d{4,10}$` | HTTP **400**（可重试，不崩溃） |
 | 2 | `name` 为空 | HTTP **400**（可重试，不崩溃） |
 | 3 | 该来源 IP 超过限流阈值 | HTTP **429**（可重试，不崩溃） |
-| 4 | `qq` 在白名单中**完全没有记录** | 200 + `success:false`（**未通过，崩溃**） |
-| 5 | 有记录，但**全部**处于禁用 / 已过期 | 200 + `success:false`（**未通过，崩溃**） |
+| 4 | `qq` 在白名单中**完全没有记录** | 200 + `success:false`（**未通过，计一次失败**） |
+| 5 | 有记录，但**全部**处于禁用 / 已过期 | 200 + `success:false`（**未通过，计一次失败**） |
 | 6 | 存在可用记录且其 `mcId` **与上报游戏ID 一致**（忽略大小写） | ✅ **通过**，`data.matchedBy = "bound"` |
 | 7 | 存在可用记录且其 `mcId` **为空**（只绑 QQ、不限定游戏ID） | ✅ **通过**，`data.matchedBy = "unbound"`<br>（该分支可用 `northstar.verify.require-mc-id=true` 关闭） |
-| 8 | 有可用记录，但都绑定了别的游戏ID | 200 + `success:false`（**未通过，崩溃**） |
+| 8 | 有可用记录，但都绑定了别的游戏ID | 200 + `success:false`（**未通过，计一次失败**） |
 | 9 | 任何内部异常（数据库等） | HTTP **5xx**（可重试，不崩溃） |
+
+> 表中 4 / 5 / 8 三项都只**累计一次失败**；累计达到 `maxAttempts`（默认 3）次客户端才崩溃退出。
+> 1 / 2 / 3 / 9 属于「服务不可用」，可以无限重试且**不消耗次数**。
 
 #### `qq` 从哪来
 
@@ -217,13 +225,14 @@ https://<后端域名>/api/beta/verify?qq=123456789&name=Steve
 
 > `data` 只作展示 / 排查用，客户端**不做**任何字段校验。
 
-#### ❌ 明确未通过（**会导致玩家客户端崩溃退出**）
+#### ❌ 明确未通过（**累计 3 次后玩家客户端才会崩溃退出**）
 
 ```json
 { "success": false, "code": 1001, "msg": "该 QQ 未获得内测资格", "data": null }
 ```
 
-`msg` 取值见 §3.2 的文案表。
+`msg` 取值见 §3.2 的文案表。每收到一次该响应，客户端记一次失败并在窗口提示剩余次数；
+达到 `maxAttempts`（默认 3）次才生成崩溃报告退出游戏。
 
 #### ⚠️ 服务不可用（玩家可重试，不崩溃）
 
@@ -256,9 +265,9 @@ https://<后端域名>/api/beta/verify?qq=123456789&name=Steve
 | 值 | 判定 |
 | --- | --- |
 | JSON 布尔 `true` | ✅ 通过 |
-| JSON 布尔 `false` | ❌ 未通过（崩溃） |
+| JSON 布尔 `false` | ❌ 未通过（**计一次失败**） |
 | 字符串 `"true"`（忽略大小写） | ✅ 通过 |
-| 其它字符串（`"false"`、`"1"`、`"yes"`） | ❌ **未通过（崩溃）** |
+| 其它字符串（`"false"`、`"1"`、`"yes"`） | ❌ **未通过（计一次失败）** |
 | 数字（`1`、`0`） | ⚠️ 服务不可用 |
 
 **`code` 字段：**（v2.0 起 `0` 与 `200` 都算通过）
@@ -267,18 +276,22 @@ https://<后端域名>/api/beta/verify?qq=123456789&name=Steve
 | --- | --- |
 | 数字 `0` | ✅ 通过 |
 | 数字 `200` | ✅ 通过（**兼容后端既有 `ApiResponse` 用 200 表示成功的约定**） |
-| 其它整数（`1`、`404`、`1001` …） | ❌ 未通过（崩溃） |
+| 其它整数（`1`、`404`、`1001` …） | ❌ 未通过（**计一次失败**） |
 | 可解析为整数的字符串 `"0"` / `"200"` | ✅ 通过 |
 | 无法解析为整数的字符串（`"OK"`） | ⚠️ 服务不可用 |
 | 布尔 / null / 对象 | ⚠️ 服务不可用 |
 
 > **优先级**：`success` 优先于 `code`。两者同时存在时以 `success` 为准。
 > 服务端当前同时输出两者，`success` 命中规则 3，`code` 作为兜底。
+>
+> **「未通过」不等于立刻崩溃**：每次「未通过」只累计一次失败，达到 `maxAttempts`
+> （默认 3）次才崩溃退出。次数按游戏 ID 持久化，重启不清零，验证通过后归零。
+> 判定规则的源码入口是 `verification/AttemptPolicy`（纯逻辑，可独立测试）。
 
 #### 🚨 必须避开的三个坑
 
-1. **服务异常绝不能返回 `200` + `success:false`** —— 会被判「明确未通过」，直接把玩家踢出游戏并生成崩溃日志。**服务异常一律用非 2xx。**
-2. **`success` 必须用 JSON 布尔**。写数字 `1` → 判「服务不可用」；写字符串 `"1"` → 判「未通过」（崩溃）。
+1. **服务异常绝不能返回 `200` + `success:false`** —— 会被判「明确未通过」，白白消耗玩家的验证机会，连续 3 次后玩家被踢出游戏并生成崩溃日志。**服务异常一律用非 2xx。**
+2. **`success` 必须用 JSON 布尔**。写数字 `1` → 判「服务不可用」；写字符串 `"1"` → 判「未通过」（计一次失败）。
 3. **HTTP 200 必须携带合法 JSON 对象**。返回 HTML 错误页、空响应体、JSON 数组都会被判「服务不可用」。
 
 ---
@@ -424,7 +437,7 @@ qq,gameId,nickname,remark,expireAt
 
 | 字段 | 取值 |
 | --- | --- |
-| `result` | `pass` / `reject`（玩家会崩溃）/ `error`（玩家可重试） |
+| `result` | `pass` / `reject`（计一次失败，满 `maxAttempts` 后崩溃）/ `error`（玩家可重试） |
 | `matchedBy` | 仅 `pass` 时有值：`bound`（精确命中绑定）/ `unbound`（未绑定游戏ID 放行） |
 
 > `keyword` 可匹配 `qq`、游戏ID、来源 IP。
@@ -460,7 +473,7 @@ GET /api/beta/verify?qq=&name=
 
 环境变量覆盖：`VERIFY_QQ_PATTERN`、`VERIFY_RATE_LIMIT_PER_MINUTE`、`VERIFY_REQUIRE_MC_ID`。
 
-> ⚠️ 把 `require-mc-id` 改成 `true` 之前，**务必确认白名单里每一条都填了 `mcId`**，否则这些 QQ 的玩家会全部崩溃退出。
+> ⚠️ 把 `require-mc-id` 改成 `true` 之前，**务必确认白名单里每一条都填了 `mcId`**，否则这些 QQ 的玩家会全部被判未通过（连试 `maxAttempts` 次后崩溃退出）。
 
 > 限流是**单机内存**滑动窗口，重启即清零、多实例不共享。当前部署规模足够；若将来多实例，建议改用 Redis（项目已引入 `spring-boot-starter-data-redis`）。
 
@@ -513,7 +526,7 @@ GET /api/beta/verify?qq=&name=
 #### 白名单条目的来源（与注册平台的关系）
 
 服务端不启用 MC 白名单、也不校验 UUID，判定完全在后端做。因此「审批通过」必须落到白名单表，
-否则玩家会被判「未通过」而客户端崩溃。白名单有两类来源，靠 `source` 区分：
+否则玩家会被判「未通过」（连试 `maxAttempts` 次后客户端崩溃）。白名单有两类来源，靠 `source` 区分：
 
 | `source` | 来源 | 谁维护 |
 | --- | --- | --- |
@@ -529,7 +542,7 @@ GET /api/beta/verify?qq=&name=
 
 触发时机：审核申请通过 / 后台直接发放 / 管理员修改账号（QQ、游戏ID、内测状态）时，
 **同步失败会让整个审批操作失败并报错**（提示先去补填 QQ），
-避免出现「后台显示已批准、玩家进游戏却被判未通过而崩溃」这种状态。
+避免出现「后台显示已批准、玩家进游戏却被判未通过（连试 `maxAttempts` 次即崩溃）」这种状态。
 注册或改绑时「认领」已有资格属于自动流程，缺 QQ 只记警告，不会打断玩家注册。
 
 > `users` 表因此新增了 `qq` 列（varchar(16)，可空）。存量账号可由管理员在后台「编辑玩家」补填，
@@ -658,12 +671,21 @@ debugLog = true
 
 > 想反复触发弹窗：删除 `config/northstar/verification.json` 后重启游戏。
 
-> 本地 `verification.json` 的 `players` 键是**游戏ID（小写）**，例如：
+> 本地 `verification.json` 的 `players` 键是**游戏ID（小写）**；`failures` 记录各游戏ID
+> 累计的验证失败次数（v3.6 起）。例如：
 > ```json
-> { "version": 2, "players": { "steve": { "name": "Steve", "qq": "123456789",
->   "firstVerifiedAt": 1758680000000, "lastVerifiedAt": 1758680000000 } } }
+> {
+>   "version": 3,
+>   "players":  { "steve": { "name": "Steve", "qq": "123456789",
+>                            "firstVerifiedAt": 1758680000000, "lastVerifiedAt": 1758680000000 } },
+>   "failures": { "alex": 2 }
+> }
 > ```
 > v1 版按 UUID 索引的旧文件会在首次载入时**自动迁移**，无需手工处理。
+>
+> **玩家被锁住时怎么恢复**：删掉 `failures` 里对应的那一项（或整个文件）后重启游戏，
+> 次数即归零。注意 `players` 与 `failures` 是两套独立数据——填错 QQ **不会**往 `players`
+> 里写条目，所以「失败过」永远不会被当成「已通过」。
 
 ---
 
@@ -688,13 +710,17 @@ debugLog = true
 | `verifyUrl` | 开发地址（见 §6.2） | 字符串 | **接口 A 完整地址**；留空则跳过远端校验、本地直接放行 |
 | `httpTimeoutMs` | `8000` | 1000–60000 | 请求超时（毫秒） |
 | `reverifyOnLaunch` | `false` | 布尔 | 本地已有记录时是否仍重新校验 |
-| `crashOnReject` | `true` | 布尔 | 「明确未通过」时是否崩溃退出 |
+| `maxAttempts` | `3` | 1–100 | 允许验证失败几次，**达到该次数才崩溃退出**；只有「明确未通过」计数，服务不可用不计数。计数按游戏ID持久化，重启不清零，验证通过后归零。设为 `1` 即恢复旧行为 |
+| `crashWhenExhausted` | `true` | 布尔 | 次数用尽后是否崩溃退出；设为 `false` 则永不崩溃（调试用） |
 | `openDelayTicks` | `20` | 0–200 | 主界面出现后延迟多少刻弹窗（20 刻 = 1 秒） |
 | `blockEscape` | `true` | 布尔 | 验证完成前是否禁止 ESC 关闭弹窗 |
 | `qqPattern` | `^[1-9]\d{4,10}$` | 正则 | QQ 号校验规则（需与服务端一致） |
 | `debugLog` | `false` | 布尔 | 是否输出调试日志 |
 
 > `verifyUrl` 只接受 `http://` / `https://` 开头，其它协议直接判为服务不可用、不发请求。
+>
+> `crashOnReject` 是 v3.6 之前的旧配置项（语义为「一次未通过就崩」），已被
+> `maxAttempts` + `crashWhenExhausted` 取代；旧文件里残留的这一行会被 Forge 自动忽略。
 
 ---
 
@@ -710,6 +736,11 @@ debugLog = true
 | 未通过时返回 `200` + `success:false` + `code:1001` | 同上 |
 | `code:200` 也能被判为通过（兼容 `ApiResponse`） | `VerifyIT` `/code200` 用例 |
 | 服务异常一律非 2xx，且客户端**不崩溃** | `VerifyIT` 400/429/500 三用例 |
+| **未通过 1 / 2 次时可重试，第 3 次才崩溃** | `VerifyIT` `AttemptPolicy` 边界断言（含第 0 / 4 次） |
+| **`maxAttempts=1` 时等于旧的「一次即崩」** | `VerifyIT` `AttemptPolicy` 断言 |
+| **`crashWhenExhausted=false` 时永不崩溃** | `VerifyIT` `AttemptPolicy` 断言 |
+| **剩余次数不会算成负数 / `maxAttempts=0` 兜底为 1** | `VerifyIT` `AttemptPolicy` 断言 |
+| **崩溃文案不再写「请重试」** | `VerifyIT` 直接引用 `REJECT_*` 常量做反断言 |
 | 响应体 UTF-8、`Content-Type: application/json` | 端到端实测 |
 | 中文 / 含空格游戏名正确传递与解码 | `VerifyIT` 编码断言 + `BetaVerifyEndToEndTest` |
 | **游戏ID 与绑定一致 → 通过** | 服务层测试 + 端到端实测 |
@@ -728,7 +759,9 @@ debugLog = true
 | 本人申请状态依次为 未申请 → 审核中 → 已通过 | `BetaApplyLoginGateTest` |
 | 有开放计划才会出现申请入口 | 前端 `openPlans` 过滤（状态 `active` + 日期窗口 + 名额未满） |
 
-> **上线前务必确认白名单已导入。** 若白名单为空，**所有玩家都会被判「未通过」并崩溃** —— 属于重大线上事故。可先只给 1 个测试 QQ（并填好游戏ID）发放资格，确认能正常进入后再批量导入。
+> **上线前务必确认白名单已导入。** 若白名单为空，**所有玩家都会被判「未通过」，连试 `maxAttempts`（默认 3）次后崩溃退出** —— 属于重大线上事故。可先只给 1 个测试 QQ（并填好游戏ID）发放资格，确认能正常进入后再批量导入。
+>
+> 想临时把影响降到最低，可先把 `maxAttempts` 调大或把 `crashWhenExhausted` 设为 `false`（玩家可无限重试、不崩溃），修好白名单后再恢复。
 
 ---
 
@@ -738,6 +771,7 @@ debugLog = true
 | --- | --- | --- |
 | v1.0 | 2026-09-24 | 首版，接口 A/B 为待开发提案；`code` 只认 `0`；时间戳用毫秒 |
 | v2.0 | 2026-09-24 | 接口已在 `northstar_backend` 落地；`code` 认 `0`/`200`；时间改为 `datetime` 字符串；新增 429 限流、日志脱敏、`import-csv` |
+| **v3.6** | 2026-09-24 | **验证失败改为「允许 3 次」**：新增 `maxAttempts`（默认 3）与 `crashWhenExhausted`，取代旧的 `crashOnReject`（旧语义为一次未通过即崩）。只有「明确未通过」（2xx 且 `success=false`）计数，服务不可用（超时 / 4xx / 5xx / 无法解析）仍可无限重试且不消耗次数。次数**按游戏 ID 持久化**在 `verification.json` 的新增 `failures` 字段（文件格式 v3），**重启游戏不清零，验证通过才归零**。判定规则抽成纯逻辑类 `verification/AttemptPolicy` 以便独立测试。验证窗口会显示「剩余验证次数：N / 3」，崩溃报告新增「失败次数」明细；崩溃文案由「请重试」改为「尝试次数已用完」。接口 A/B 契约未变 |
 | **v3.5** | 2026-09-24 | **内测申请必须登录平台账号**：`POST /api/beta/apply` 未登录一律 403，且申请身份（用户名 / QQ / 游戏ID）全部取自登录账号，请求体里的 `query` 被忽略（标 `@Deprecated`），杜绝代别人占名额。新增 `GET /api/beta/my-application` 供前端区分未申请 / 审核中 / 已通过 / 上次被拒（`hasApplication` / `status` / `planName` / `betaStatus`）。前端申请区从「查询失败才出现」提升为独立区块，只有存在开放中计划时才出现，未登录只给登录 / 注册入口（均带 `redirect=/beta`）。接口 A 契约未变 |
 | **v3.4** | 2026-09-24 | **客户端暂对接开发环境**：模组默认 `verifyUrl` 由空值改为开发地址 `http://127.0.0.1:8080/api/beta/verify`（新增 `Config.VERIFY_URL_DEV` / `VERIFY_URL_PROD` 常量，联调稳定后改 `DEFAULT_VERIFY_URL` 一行即可切生产）。**后台原生弹窗改为站内弹窗**：新增 `ConfirmDialog.vue` 取代 `window.confirm`（删除白名单 / 按账号重建 / 覆盖导入三处）与 `window.alert`（内测申请成功与失败两处）。接口 A/B 契约未变 |
 | **v3.3** | 2026-09-24 | **Minecraft ID 与 QQ 同规则：注册后不可更改**（`users` 新增 `mc_id_bound_at`；`PUT /profile` 与 `POST /bind-game` 在已绑定后提交不同值一律 400；格式校验统一走 `support/McIdFormat`）。**内测资格与白名单改为双向联动**：取消资格时 `source=account` 条目自动删除，人工条目不受影响；新增对账接口 `POST /api/admin/beta/whitelist/sync-accounts`。接口 A 契约未变 |
@@ -788,7 +822,7 @@ private static Boolean readSuccessFlag(String body) {
 }
 ```
 
-返回 `true` → 通过；`false` → 明确未通过（客户端崩溃）；`null` → 服务不可用（玩家可重试）。
+返回 `true` → 通过；`false` → 明确未通过（计一次失败，满 `maxAttempts` 次后客户端崩溃）；`null` → 服务不可用（玩家可重试）。
 
 ## 附录 B：客户端 URL 构造规则
 
