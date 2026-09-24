@@ -1,0 +1,14 @@
+# 统一换行，避免 Windows / Linux 之间来回签出产生 diff 噪音
+* text=auto eol=lf
+
+# Gradle wrapper 脚本必须保持 LF，否则在 *nix 下无法执行
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+*.bat text eol=crlf
+
+# 二进制文件不做任何转换
+*.jar binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.ico binary
