@@ -183,6 +183,12 @@ tasks.named('jar', Jar).configure {
 
     // This is the preferred method to reobfuscate your jar file
     finalizedBy 'reobfJar'
+
+    // 把许可证全文随 jar 一起分发：LGPL-2.1 要求接收者能拿到许可证副本，
+    // 而玩家通常只会拿到 jar（不会来翻仓库）。
+    from('LICENSE') {
+        rename 'LICENSE', 'LICENSE-NorthStarClientVerification.txt'
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
