@@ -85,6 +85,18 @@ Mod 装在玩家自己的电脑上，任何玩家都能绕过（改配置文件�
 - 想重新触发一次全新的验证流程：删掉该文件后重启游戏即可。
 - 文件损坏时自动备份为 `verification.json.bak` 并重建。
 
+
+## 服务端验证握手
+
+进服（以及重生 / 换维度）时，Mod 会通过插件消息通道 `northstar:verify` 向服务端发一条
+**裸的原版自定义 payload**（不注册 Forge SimpleChannel），内容为协议版本 + Mod ID + 握手签名。
+服务端配合 `NorthStarModTestPlugin` 即可在超时未收到握手时踢出玩家，用于挡住未装 Mod 的客户端。
+
+- 通道：`northstar:verify`
+- 协议版本：`1`
+- 握手签名：`NorthStar-Client-Verification-v1`
+
+这仍是**威慑性检测**：客户端逻辑可被篡改，因此不能作为服务端权限控制。
 ## 构建
 
 需要 **JDK 17**（更高的 JDK 会让 ForgeGradle 构建失败）。
@@ -114,3 +126,5 @@ Mod 装在玩家自己的电脑上，任何玩家都能绕过（改配置文件�
 但**对本 Mod 本身的修改必须以 LGPL-2.1 同样开放**。本软件不提供任何担保。
 
 > 以上仅为便于阅读的概述，具体权利义务以 [LICENSE](LICENSE) 全文为准。
+
+
